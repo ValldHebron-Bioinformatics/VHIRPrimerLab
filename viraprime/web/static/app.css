@@ -240,7 +240,8 @@ tr.low td.cov { color: var(--miss); font-weight: 500; }
 /* primer cell: forward and reverse on two lines */
 td.primers { display: table-cell; }
 td.primers .seq { display: flex; align-items: center; gap: 8px; }
-td.primers .seq + .seq { margin-top: 4px; }
+td.primers .facts + .seq { margin-top: 6px; }
+td.primers .facts { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .strand { font-size: 12px; color: var(--muted); width: 12px; flex: none; }
 td.lead .sub { display: block; font-size: 12px; color: var(--muted); }
 .results { min-height: 0; }

@@ -98,3 +98,17 @@ def test_report_below_threshold(run, tmp_path: Path) -> None:
     text = (tmp_path / "report.txt").read_text()
     assert "Amplicons below 95 % coverage: 3" in text
     assert "fwd 3' mismatch: 6" in text
+
+
+def test_tsv_per_primer_degeneracy(run, tmp_path: Path) -> None:
+    from viraprime.degenerate import degenerate_bases, fold, gc_percent
+    result, cmap, _ = run
+    write_tiling_tsv(result, cmap, tmp_path / "primers.tsv")
+    with (tmp_path / "primers.tsv").open() as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    for r in rows:
+        for side in ("forward", "reverse"):
+            seq = r[f"{side}_seq"]
+            assert r[f"{side}_degenerate_bases"] == str(degenerate_bases(seq))
+            assert r[f"{side}_variants"] == str(fold(seq))
+            assert r[f"{side}_gc"] == f"{gc_percent(seq):.1f}"

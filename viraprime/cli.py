@@ -181,6 +181,7 @@ def _score_candidate(
     sparams: ScoringParams,
     allow_degenerate: bool,
     max_fold: int,
+    gc_limits: tuple[float, float] | None = None,
 ) -> ScoredPair:
     f, r = cand.forward, cand.reverse
     fwd_cols = cons.cons_to_col[f.start: f.start + f.length]
@@ -190,7 +191,7 @@ def _score_candidate(
     fwd_seq, rev_seq, degenerate = f.seq, r.seq, False
     if allow_degenerate and cov.not_covered:
         new_f, new_r, new_cov = degenerate_pair(
-            fwd_site, fwd_cols, rev_site, rev_cols, aln, sparams, max_fold
+            fwd_site, fwd_cols, rev_site, rev_cols, aln, sparams, max_fold, gc_limits
         )
         if (new_f, new_r) != (fwd_site, rev_site):
             fwd_seq, rev_seq, cov, degenerate = new_f, reverse_complement(new_r), new_cov, True
@@ -216,7 +217,9 @@ def _design_region(
     except PipelineError as exc:
         raise PipelineError(f"Region '{region.name}': {exc}") from exc
     scored = [
-        _score_candidate(c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy)
+        _score_candidate(
+            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max)
+        )
         for c in design.pairs
     ]
     ranked = rank(scored, a.min_coverage, a.num_pairs)

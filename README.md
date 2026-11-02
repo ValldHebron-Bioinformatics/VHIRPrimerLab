@@ -35,8 +35,10 @@ overlap) covering the genome end to end. Odd amplicons go in pool 1 and even one
 so overlapping products never share a tube. It writes:
 
 - `primers.tsv`: one row per amplicon: pool, primer names (`viraprime_1_LEFT`, …) and
-  sequences, Tm, GC, reference coordinates, overlap with the next amplicon, coverage and the
-  sequences each amplicon misses, with the reason.
+  sequences, and for each primer its length, Tm, GC %, number of degenerate bases and number of
+  variants (for degenerate primers also the Tm range over the variants); then reference
+  coordinates, overlap with the next amplicon, coverage and the sequences each amplicon misses,
+  with the reason.
 - `scheme.bed`: the primer scheme in ARTIC format (`chrom start end name pool strand
   sequence`), ready for amplicon-sequencing pipelines.
 - `report.txt`: settings, input and alignment statistics, the tiling, bases left uncovered at
@@ -49,7 +51,8 @@ so overlapping products never share a tube. It writes:
    length limits, or with hairpins, self-dimers or a G/C-heavy 3′ end, are dropped.
 2. The most conserved primers are kept and checked against every sequence with the matching
    rules below. Degenerate (IUPAC) bases are added where they rescue sequences, up to
-   `--max-degeneracy` variants per primer.
+   `--max-degeneracy` variants per primer, as long as the primer's GC % (averaged over its
+   variants) stays within `--gc-min`/`--gc-max`.
 3. A dynamic-programming search picks exactly N amplicons: it maximises the worst amplicon's
    coverage, then the total coverage, then how close the tiling reaches both genome ends, then
    primer quality. Amplicon lengths may vary ±20 % around the target; if no tiling fits, the
@@ -163,7 +166,8 @@ viraprime check -i examples/family.fasta --primers assays.tsv -o out_check
 
 It writes `alignment.fasta`, `report.txt` (one section per pair, with why it misses sequences)
 and `check.tsv`, one row per pair: `name, forward_seq, reverse_seq, forward_tm, reverse_tm,
-forward_gc, reverse_gc, forward_len, reverse_len, degenerate, forward_tm_range,
+forward_gc, reverse_gc, forward_len, reverse_len, degenerate, forward_degenerate_bases,
+reverse_degenerate_bases, forward_variants, reverse_variants, forward_tm_range,
 reverse_tm_range, located, forward_site_mismatches, reverse_site_mismatches, amplicon_start,
 amplicon_end, amplicon_len, coverage_pct, n_covered, n_total, below_threshold, not_covered,
 note`. On the example family the two pairs above give 100 % and 30 % coverage, as in the design
@@ -195,6 +199,11 @@ the same; design-only options such as `--region` are rejected. Exit codes: `0` e
 6. **Re-score** each pair against every sequence (see *Matching rules*), optionally adding IUPAC
    degenerate bases (`--allow-degenerate`).
 7. **Rank** by coverage, then primer3 penalty, and report the top `--num-pairs` per region.
+
+For degenerate primers, GC % is the average over all variants (degenerate bases are only added
+while it stays within `--gc-min`/`--gc-max`), and `*_tm_range` gives the
+lowest and highest Tm over all variants. `*_degenerate_bases` counts the
+IUPAC positions and `*_variants` the distinct oligos the primer stands for.
 
 ### Matching rules (all modes)
 

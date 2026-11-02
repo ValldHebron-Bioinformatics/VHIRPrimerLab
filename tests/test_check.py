@@ -100,7 +100,7 @@ from Bio.Seq import reverse_complement
 
 from viraprime.check import TM_FOLD_LIMIT, check_assay, locate
 from viraprime.conservation import build_consensus, score_columns
-from viraprime.degenerate import tm_range
+from viraprime.degenerate import fold, tm_range
 from viraprime.models import Alignment, Consensus, Location, ScoringParams
 from viraprime.scoring import IUPAC, score_pair
 
@@ -271,6 +271,10 @@ def test_write_check_tsv_columns(tmp_path: Path) -> None:
     assert r_bad["located"] == "False" and r_bad["note"] == NOT_DOWNSTREAM_TEXT
     assert r_bad["amplicon_start"] == r_bad["amplicon_len"] == r_bad["forward_site_mismatches"] == ""
     assert r_bad["not_covered"].startswith("s0(not located)")
+    for r, res in ((r_ok, ok), (r_bad, bad)):
+        for side, seq in (("forward", res.assay.forward), ("reverse", res.assay.reverse)):
+            assert r[f"{side}_degenerate_bases"] == str(sum(b not in "ACGT" for b in seq))
+            assert r[f"{side}_variants"] == str(fold(seq))
 
 
 NOT_DOWNSTREAM_TEXT = "reverse site is not downstream of forward site"

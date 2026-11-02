@@ -14,8 +14,9 @@ AMP = ["--amplicon-min", "100", "--amplicon-max", "300"]
 COLUMNS = [
     "region", "rank", "forward_seq", "reverse_seq", "forward_tm", "reverse_tm", "forward_gc",
     "reverse_gc", "forward_len", "reverse_len", "amplicon_start", "amplicon_end", "amplicon_len",
-    "coverage_pct", "n_covered", "n_total", "degenerate", "forward_tm_range", "reverse_tm_range",
-    "penalty", "below_threshold", "not_covered",
+    "coverage_pct", "n_covered", "n_total", "degenerate", "forward_degenerate_bases",
+    "reverse_degenerate_bases", "forward_variants", "reverse_variants", "forward_tm_range",
+    "reverse_tm_range", "penalty", "below_threshold", "not_covered",
 ]
 
 pytestmark = needs_mafft

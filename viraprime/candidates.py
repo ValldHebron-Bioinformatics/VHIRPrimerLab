@@ -9,7 +9,7 @@ from typing import Callable
 import primer3
 from Bio.Seq import reverse_complement
 
-from viraprime.degenerate import degenerate_site, tm_range
+from viraprime.degenerate import degenerate_site, gc_percent, tm_range
 from viraprime.models import Alignment, ColumnStats, Consensus, PrimerCandidate, TilingParams
 from viraprime.scoring import match_primer
 
@@ -137,12 +137,14 @@ def score_primers(
         mask = _mask(c.site, cols, aln, side, sp)
         scored = dataclasses.replace(c, cols=cols, mask=mask)
         if params.degenerate and mask != full:
-            site = degenerate_site(c.site, cols, aln, sp, params.max_degeneracy, side)
+            site = degenerate_site(
+                c.site, cols, aln, sp, params.max_degeneracy, side, (params.gc_min, params.gc_max)
+            )
             if site != c.site:
                 seq = site if c.strand == "+" else reverse_complement(site)
                 lo, hi = tm_range(seq)
                 scored = dataclasses.replace(
-                    scored, site=site, seq=seq, tm=(lo + hi) / 2, tm_range=(lo, hi),
+                    scored, site=site, seq=seq, tm=(lo + hi) / 2, tm_range=(lo, hi), gc=gc_percent(seq),
                     mask=_mask(site, cols, aln, side, sp),
                 )
         out.append(scored)

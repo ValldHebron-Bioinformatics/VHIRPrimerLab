@@ -110,3 +110,13 @@ def test_score_primers_degenerate_rescues(family, raw) -> None:
         assert fold(c.site) <= 4
         if c.site != c.base_seq:
             assert c.tm_range is not None
+
+
+def test_degenerate_site_keeps_gc_within_limits() -> None:
+    # 8 G/C of 20 = 40 % GC; making position 10 (G) into R (A/G) drops the average to 37.5 %
+    site = "AATTGCAGCTGCATGCATAT"
+    variant = site[:10] + "A" + site[11:]
+    aln = _aln([site] * 5 + [variant] * 5)
+    strict = ScoringParams(0, 5)
+    assert degenerate_site(site, list(range(20)), aln, strict, 4, "right") != site
+    assert degenerate_site(site, list(range(20)), aln, strict, 4, "right", gc_limits=(40, 60)) == site
