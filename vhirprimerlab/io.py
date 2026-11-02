@@ -136,6 +136,18 @@ def write_tsv(results: list[RegionResult], cmap: CoordMap, path: Path) -> None:
                 ])
 
 
+def primer_summary(seq: str, tm: float | None, tm_range: tuple[float, float] | None) -> str:
+    """One report line about a primer: sequence, length, Tm, GC % and degeneracy."""
+    if tm is None:
+        tm_text = "Tm not computed"
+    else:
+        tm_text = f"Tm {tm:.1f} °C" + (f" ({_fmt_range(tm_range)})" if tm_range else "")
+    n = degenerate_bases(seq)
+    degen = (f"{n} degenerate base{'s' if n > 1 else ''} ({fold(seq)} variants)" if n
+             else "no degenerate bases")
+    return f"{seq}  {len(seq)} nt, {tm_text}, GC {gc_percent(seq):.1f} %, {degen}"
+
+
 def _region_section(res: RegionResult, min_coverage: float) -> list[str]:
     r = res.region
     title = f"Region {r.name} ({r.start}-{r.end})"
@@ -148,8 +160,11 @@ def _region_section(res: RegionResult, min_coverage: float) -> list[str]:
         lines.append("primer3 found no candidate pairs in this region. primer3 explanation:")
         lines += [f"  {k}: {v}" for k, v in res.explain.items()]
         return lines
-    best = res.rank.pairs[0].coverage.coverage_pct
-    lines.append(f"Best coverage: {best:.1f}%")
+    top = res.rank.pairs[0]
+    lines += [f"Best coverage: {top.coverage.coverage_pct:.1f}%",
+              "Best pair (rank 1):",
+              f"  Forward: {primer_summary(top.fwd_seq, top.pair.forward.tm, top.fwd_tm_range)}",
+              f"  Reverse: {primer_summary(top.rev_seq, top.pair.reverse.tm, top.rev_tm_range)}"]
     if res.rank.below_threshold:
         lines.append(
             f"WARNING: no pair reached {min_coverage:g}% coverage; the best available pairs are "
@@ -260,7 +275,9 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
     a, cov = res.assay, res.coverage
     title = f"Pair {a.name}"
     n_total = len(cov.covered) + len(cov.not_covered)
-    lines = [title, "-" * len(title), f"Forward: {a.forward}", f"Reverse: {a.reverse}"]
+    lines = [title, "-" * len(title),
+             f"Forward: {primer_summary(a.forward, res.fwd_tm, res.fwd_tm_range)}",
+             f"Reverse: {primer_summary(a.reverse, res.rev_tm, res.rev_tm_range)}"]
     if res.located:
         f0, r0 = res.fwd.start, res.rev.start
         amp = _amplicon(res, cmap)
@@ -373,6 +390,9 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
         span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
         where = f"{span[0]}-{span[1]}  {span[1] - span[0] + 1} bp" if span else "not on reference"
         out.append(f"  {a.index} pool {a.pool}  {where}  {a.coverage.coverage_pct:.1f} %")
+        left, right = _names(a.index)
+        out += [f"    {left}   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}",
+                f"    {right}  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}"]
         if a.below_threshold:
             out.append("    Why sequences are missed (count):")
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]

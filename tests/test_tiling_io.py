@@ -112,3 +112,23 @@ def test_tsv_per_primer_degeneracy(run, tmp_path: Path) -> None:
             assert r[f"{side}_degenerate_bases"] == str(degenerate_bases(seq))
             assert r[f"{side}_variants"] == str(fold(seq))
             assert r[f"{side}_gc"] == f"{gc_percent(seq):.1f}"
+
+
+def test_primer_summary_format() -> None:
+    from vhirprimerlab.io import primer_summary
+    assert primer_summary("ACGTACGTACGTACGTACGT", 55.04, None) == (
+        "ACGTACGTACGTACGTACGT  20 nt, Tm 55.0 °C, GC 50.0 %, no degenerate bases")
+    assert primer_summary("ACGTRCGTACGTACGTACGY", 55.0, (54.0, 56.25)) == (
+        "ACGTRCGTACGTACGTACGY  20 nt, Tm 55.0 °C (54.0-56.2), GC 55.0 %, "
+        "2 degenerate bases (4 variants)")
+    assert "Tm not computed" in primer_summary("NNNNNNNNNNNNNNNNNNNN", None, None)
+
+
+def test_report_lists_every_primer(run, tmp_path: Path) -> None:
+    from vhirprimerlab.io import primer_summary
+    result, cmap, records = run
+    write_tiling_report(_report(result, records), cmap, tmp_path / "report.txt")
+    text = (tmp_path / "report.txt").read_text()
+    for a in result.amplicons:
+        assert f"VHIRPrimerLab_{a.index}_LEFT   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}" in text
+        assert f"VHIRPrimerLab_{a.index}_RIGHT  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}" in text
