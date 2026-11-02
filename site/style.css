@@ -185,6 +185,18 @@ input[type="range"] { accent-color: var(--ink); height: 24px; cursor: pointer; }
 .facts { margin-top: 40px; display: grid; gap: 24px; }
 .facts dt { font-size: var(--t-l); font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: lining-nums tabular-nums; }
 .facts dd { margin-top: 6px; color: var(--slate); font-size: 15px; }
+/* the facts' proof: genomes amplified per hMPV amplicon, one genome vs the family */
+.gain { margin-top: 40px; width: 100%; border-collapse: separate; border-spacing: 0 10px; font-variant-numeric: lining-nums tabular-nums; }
+.gain caption { caption-side: bottom; text-align: left; margin-top: 8px; font-size: var(--t-s); line-height: 1.5; color: var(--slate); }
+.gain th, .gain td { padding: 0; text-align: left; vertical-align: bottom; font-weight: 400; }
+.gain thead th { font-size: var(--t-s); font-weight: 600; color: var(--ink); line-height: 1.3; padding-bottom: 2px; }
+.gain thead th:first-child { width: 6.5em; padding-right: 16px; }
+.gain thead th { white-space: nowrap; }
+.gain tbody th { font-size: var(--t-s); color: var(--slate); padding-bottom: 1px; }
+.gain td { width: 50%; padding-right: 16px; }
+.gain td:last-child { padding-right: 0; }
+.gain-n { display: block; font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.gain .meter { display: block; margin-top: 4px; }
 @media (max-width: 960px) {
   .why { grid-template-columns: 1fr; row-gap: 40px; }
   .fade, .why-copy { grid-column: 1 / -1; }
