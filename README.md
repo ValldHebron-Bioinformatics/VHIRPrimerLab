@@ -84,7 +84,7 @@ says the most that fit).
 
 ## Run it from the web
 
-Open the web app at **https://valldhebron-bioinformatics.github.io/viraprime/app/**: drop your
+Open the web app at **https://valldhebron-bioinformatics.github.io/VHIRPrimerLab/app/**: drop your
 FASTA, choose the number of amplicons, and get the primers with a coverage map and downloads.
 A "Check my primers" tab tests pairs you already have.
 
