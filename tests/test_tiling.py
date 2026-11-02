@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.synthetic import make_genome_family
-from vhirprimerlab import tiling
+from vhirprimerlab import structure, tiling
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import alignment_from_records
@@ -138,7 +138,8 @@ def test_n_too_large(family) -> None:
 
 
 def test_dimer_warning_format(family, monkeypatch) -> None:
-    monkeypatch.setattr(tiling.primer3, "calc_heterodimer", lambda a, b: SimpleNamespace(dg=-12000.0))
+    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
+                        lambda a, b: SimpleNamespace(dg=-12000.0, tm=0.0))
     res = tile(*family, PARAMS)
     assert res.dimer_warnings
     assert res.dimer_warnings[0].startswith("pool 1: VHIRPrimerLab_1_LEFT × ")
@@ -178,3 +179,39 @@ def test_wide_variable_block_gives_a_flagged_tiling_not_an_error() -> None:
     for a in res.amplicons:
         if a.rev.end < 2400 or a.fwd.start > 3800:
             assert not a.below_threshold
+
+
+# --- dimer avoidance on hand-built candidates ---------------------------------------
+
+def _dimer_setup(alt_bits: int):
+    import dataclasses
+    geom = geometry(1000, 1, 50, 0.20, 25)  # one amplicon, lengths 800-1200, end slack 250
+    bad = dataclasses.replace(_p("+", 0, 10), seq="C" * 20, penalty=1.0)
+    alt = dataclasses.replace(_p("+", 100, alt_bits), seq="G" * 20)
+    rev = dataclasses.replace(_p("-", 980, 10), seq="T" * 20)
+    return geom, [bad, alt], [rev]
+
+
+def _c_sticks(a: str, b: str) -> float:
+    return -12000.0 if "C" in a + b else -3000.0
+
+
+def test_avoid_dimers_swaps_out_a_dimer_primer(monkeypatch) -> None:
+    monkeypatch.setattr(tiling, "dimer_dg", _c_sticks)
+    geom, fwds, revs = _dimer_setup(alt_bits=10)
+    params = _params(n_amplicons=1)
+    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, 1000, set())
+    assert path[0][0].start == 0 and tiling._dimers(path)
+    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, 1000)
+    assert path[0][0].start == 100
+    assert tiling._dimers(path) == []
+
+
+def test_avoid_dimers_keeps_pair_when_swap_loses_coverage(monkeypatch) -> None:
+    monkeypatch.setattr(tiling, "dimer_dg", _c_sticks)
+    geom, fwds, revs = _dimer_setup(alt_bits=6)  # the alternative covers fewer sequences
+    params = _params(n_amplicons=1)
+    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, 1000, set())
+    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, 1000)
+    assert path[0][0].start == 0
+    assert tiling._dimers(path) == ["pool 1: VHIRPrimerLab_1_LEFT × VHIRPrimerLab_1_RIGHT ΔG -12.0 kcal/mol"]

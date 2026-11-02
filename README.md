@@ -55,12 +55,17 @@ so overlapping products never share a tube. It writes:
 2. The most conserved primers are kept and checked against every sequence with the matching
    rules below. Degenerate (IUPAC) bases are added where they rescue sequences, up to
    `--max-degeneracy` variants per primer, as long as the primer's GC % (averaged over its
-   variants) stays within `--gc-min`/`--gc-max`.
+   variants) stays within `--gc-min`/`--gc-max` and no variant forms a hairpin, a self-dimer
+   (also between two variants of the mix) or a G/C-heavy 3′ end.
 3. A dynamic-programming search picks exactly N amplicons: it maximises the worst amplicon's
    coverage, then the total coverage, then how close the tiling reaches both genome ends, then
    primer quality. Amplicon lengths may vary ±20 % around the target; if no tiling fits, the
    tool retries at ±35 % and ±50 % and says so.
-4. Primers in the same pool are checked for primer-dimers (reported, not blocking).
+4. Primers in the same pool are checked for primer-dimers (ΔG below −9 kcal/mol between any
+   variant of one primer and any variant of the other). A primer in a dimer is swapped for
+   another when the tiling can be chosen again without it and the weakest amplicon keeps
+   at least as many sequences; dimers that cannot be removed this way are listed in
+   `report.txt`.
 
 ### Tiling options
 

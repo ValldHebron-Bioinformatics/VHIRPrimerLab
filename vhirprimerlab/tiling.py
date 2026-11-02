@@ -7,8 +7,6 @@ import logging
 import math
 from typing import Callable
 
-import primer3
-
 from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.models import (
@@ -23,6 +21,7 @@ from vhirprimerlab.models import (
     TilingResult,
 )
 from vhirprimerlab.scoring import score_pair
+from vhirprimerlab.structure import DIMER_DG, dimer_dg
 
 log = logging.getLogger("vhirprimerlab")
 
@@ -31,7 +30,7 @@ Path_ = list[tuple[PrimerCandidate, PrimerCandidate]]
 
 TOLERANCES = (0.20, 0.35, 0.50)  # amplicon length tolerances tried in order
 LONG_AMPLICON = 3000  # warn above this target length
-DIMER_DG = -9000.0  # cal/mol; primer pairs in one pool below this are reported
+MAX_DIMER_SWAPS = 20  # primers dropped at most while trying to remove dimers
 
 
 def target_length(genome_len: int, n: int, overlap: int) -> int:
@@ -183,20 +182,93 @@ def _primer_names(index: int) -> tuple[str, str]:
     return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
 
 
-def _dimers(amplicons: list[Amplicon]) -> list[str]:
-    warnings: list[str] = []
+Key = tuple[str, int, int]  # (strand, start, length) identifies a candidate primer
+
+
+def _key(c: PrimerCandidate) -> Key:
+    return c.strand, c.start, c.length
+
+
+def _dimer_pairs(path: Path_) -> list[tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
+    """Primer pairs in one pool whose worst variant pair has ΔG below DIMER_DG.
+
+    Amplicon k (1-based) is in pool 1 when k is odd, pool 2 when even. Every variant
+    of a degenerate primer is checked against every variant of the other primer.
+    """
+    found = []
     for pool in (1, 2):
-        oligos: list[tuple[str, str]] = []
-        for a in amplicons:
-            if a.pool == pool:
-                left, right = _primer_names(a.index)
-                oligos += [(left, a.fwd.base_seq), (right, a.rev.base_seq)]
-        for i, (name_a, seq_a) in enumerate(oligos):
-            for name_b, seq_b in oligos[i + 1:]:
-                dg = primer3.calc_heterodimer(seq_a, seq_b).dg
+        oligos: list[tuple[str, PrimerCandidate]] = []
+        for k, (f, r) in enumerate(path, start=1):
+            if (1 if k % 2 else 2) == pool:
+                left, right = _primer_names(k)
+                oligos += [(left, f), (right, r)]
+        for i, (name_a, a) in enumerate(oligos):
+            for name_b, b in oligos[i + 1:]:
+                dg = dimer_dg(a.seq, b.seq)
                 if dg < DIMER_DG:
-                    warnings.append(f"pool {pool}: {name_a} × {name_b} ΔG {dg / 1000:.1f} kcal/mol")
-    return warnings
+                    found.append((pool, name_a, name_b, dg, a, b))
+    return found
+
+
+def _dimers(path: Path_) -> list[str]:
+    return [f"pool {pool}: {na} × {nb} ΔG {dg / 1000:.1f} kcal/mol"
+            for pool, na, nb, dg, _, _ in _dimer_pairs(path)]
+
+
+def _worst_coverage(path: Path_) -> int:
+    return min(_popcount(f.mask & r.mask) for f, r in path)
+
+
+def _choose_any(fwds, revs, n, geoms, params, genome_len, banned: set[Key]):
+    """choose() at the first length tolerance that works, skipping banned primers."""
+    fwds = [c for c in fwds if _key(c) not in banned]
+    revs = [c for c in revs if _key(c) not in banned]
+    for geom in geoms:
+        path = choose(fwds, revs, n, geom, params, genome_len)
+        if path:
+            return path, geom
+    return None, geoms[-1]
+
+
+def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, genome_len):
+    """Swap out primers that form dimers within a pool, when that costs no coverage.
+
+    For the first dimer pair not yet given up on, the tiling is chosen again without
+    one of its primers (the one in most dimer pairs first). The new tiling is kept when
+    it has fewer dimer pairs and its weakest amplicon covers at least as many
+    sequences as before; if neither primer can go, the pair is kept and reported.
+    """
+    banned: set[Key] = set()
+    kept: set[tuple[Key, Key]] = set()
+    pairs = _dimer_pairs(path)
+    swaps = 0
+    while swaps < MAX_DIMER_SWAPS:
+        todo = [p for p in pairs if (_key(p[4]), _key(p[5])) not in kept]
+        if not todo:
+            break
+        counts: dict[Key, int] = {}
+        for p in pairs:
+            for c in (p[4], p[5]):
+                counts[_key(c)] = counts.get(_key(c), 0) + 1
+        a, b = todo[0][4], todo[0][5]
+        order = sorted((a, b), key=lambda c: (-counts[_key(c)], -c.penalty))
+        for c in order:
+            trial, trial_geom = _choose_any(fwds, revs, n, geoms, params, genome_len,
+                                            banned | {_key(c)})
+            if trial is None or _worst_coverage(trial) < _worst_coverage(path):
+                continue
+            trial_pairs = _dimer_pairs(trial)
+            if len(trial_pairs) < len(pairs):
+                banned.add(_key(c))
+                path, geom, pairs = trial, trial_geom, trial_pairs
+                swaps += 1
+                log.info("Dropped a primer that formed a dimer in its pool (%d dimer pairs left)",
+                         len(pairs))
+                break
+        else:
+            kept.add((_key(a), _key(b)))
+            swaps += 1
+    return path, geom
 
 
 def _ref(cmap: CoordMap, cons: Consensus, pos: int, side: str) -> int | None:
@@ -266,13 +338,11 @@ def tile(
     log.info("Candidate primers: %d forward, %d reverse", len(fwds), len(revs))
 
     report("choosing amplicons", 0.85)
-    path, geom = None, geoms[0]
-    for geom in geoms:
-        path = choose(fwds, revs, n, geom, params, genome_len)
-        if path:
-            break
+    path, geom = _choose_any(fwds, revs, n, geoms, params, genome_len, set())
     if not path:
         raise _no_fit(fwds, revs, n, genome_len, params, cons, cmap)
+    report("checking primer dimers", 0.90)
+    path, geom = _avoid_dimers(path, geom, fwds, revs, n, geoms, params, genome_len)
     if geom.tolerance != TOLERANCES[0]:
         log.warning("Used ±%d %% amplicon length tolerance (no tiling within ±%d %%)",
                     round(geom.tolerance * 100), round(TOLERANCES[0] * 100))
@@ -289,4 +359,4 @@ def tile(
     first = _ref(cmap, cons, path[0][0].end + 1, "start")
     last = _ref(cmap, cons, path[-1][1].start - 1, "end")
     ends = (first - 1 if first else 0, cmap.ref_length - last if last else 0)
-    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(amplicons), ends)
+    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path), ends)

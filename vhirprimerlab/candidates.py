@@ -12,11 +12,13 @@ from Bio.Seq import reverse_complement
 from vhirprimerlab.degenerate import degenerate_site, gc_percent, tm_range
 from vhirprimerlab.models import Alignment, ColumnStats, Consensus, PrimerCandidate, TilingParams
 from vhirprimerlab.scoring import match_primer
+from vhirprimerlab.structure import structure_ok
 
 Progress = Callable[[str, float], None]
 
-MAX_STRUCTURE_TM = 47.0  # primer3's default limit for hairpin and self-dimer Tm
-MAX_END_GC = 3  # at most 3 G/C among the last 5 bases (3' end)
+
+def _rc_structure_ok(site: str) -> bool:
+    return structure_ok(reverse_complement(site))
 
 
 def _gc(seq: str) -> float:
@@ -47,12 +49,7 @@ def _best_length(
             best = PrimerCandidate(strand, start, length, site, seq, seq, tm, None, _gc(site), penalty)
     if best is None:
         return None
-    seq = best.seq
-    if (primer3.calc_hairpin(seq).tm > MAX_STRUCTURE_TM
-            or primer3.calc_homodimer(seq).tm > MAX_STRUCTURE_TM
-            or sum(b in "GC" for b in seq[-5:]) > MAX_END_GC):
-        return None
-    return best
+    return best if structure_ok(best.seq) else None
 
 
 def enumerate_primers(
@@ -138,7 +135,8 @@ def score_primers(
         scored = dataclasses.replace(c, cols=cols, mask=mask)
         if params.degenerate and mask != full:
             site = degenerate_site(
-                c.site, cols, aln, sp, params.max_degeneracy, side, (params.gc_min, params.gc_max)
+                c.site, cols, aln, sp, params.max_degeneracy, side, (params.gc_min, params.gc_max),
+                accept=structure_ok if c.strand == "+" else _rc_structure_ok,
             )
             if site != c.site:
                 seq = site if c.strand == "+" else reverse_complement(site)
