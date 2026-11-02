@@ -172,7 +172,7 @@
 
   function stageHtml(k) {
     if (k === 0) return `<p class="frag-title">alignment.fasta <span>36 of 1,202 columns</span></p>${alnRows(false)}`;
-    if (k === 1) return `<p class="frag-title">Consensus <span>grey: strains differ · mint: primer site</span></p>${alnRows(true)}`;
+    if (k === 1) return `<p class="frag-title">Consensus <span>grey: strains differ · magenta: primer site</span></p>${alnRows(true)}`;
     if (k === 2) {
       const r = VP.tsv.filter((x) => x.region === 'cons');
       return `<p class="frag-title">primer3 · region cons <span>200 candidate pairs</span></p>
