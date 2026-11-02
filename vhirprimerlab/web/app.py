@@ -1,4 +1,4 @@
-"""The viraprime web app: a page, and a small job API around the command-line tool."""
+"""The VHIRPrimerLab web app: a page, and a small job API around the command-line tool."""
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ from fastapi import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from viraprime import __version__
-from viraprime.web.jobs import OUTPUT_FILES, JobManager, QueueFull, Target, run_job
-from viraprime.web.params import Limits
-from viraprime.web.prepare import prepare_job
+from vhirprimerlab import __version__
+from vhirprimerlab.web.jobs import OUTPUT_FILES, JobManager, QueueFull, Target, run_job
+from vhirprimerlab.web.params import Limits
+from vhirprimerlab.web.prepare import prepare_job
 
 STATIC = Path(__file__).parent / "static"
 JOB_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -38,8 +38,8 @@ def create_app(
     root: Path | None = None, limits: Limits | None = None, target: Target = run_job
 ) -> FastAPI:
     limits = limits or Limits.from_env()
-    root = Path(root or os.environ.get("VIRAPRIME_JOBS_DIR")
-                or Path(tempfile.gettempdir()) / "viraprime-jobs")
+    root = Path(root or os.environ.get("VHIRPRIMERLAB_JOBS_DIR")
+                or Path(tempfile.gettempdir()) / "vhirprimerlab-jobs")
     manager = JobManager(root, limits, target)
 
     @contextlib.asynccontextmanager
@@ -49,7 +49,7 @@ def create_app(
         yield
         manager.stop()
 
-    app = FastAPI(title="viraprime", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="VHIRPrimerLab", version=__version__, lifespan=lifespan)
     app.state.manager = manager
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     static_files = {p.name for p in STATIC.iterdir() if p.is_file() and p.name != "index.html"}
@@ -66,7 +66,7 @@ def create_app(
 
     page = (STATIC / "index.html").read_text().replace(
         '<meta charset="utf-8">',
-        '<meta charset="utf-8">\n<meta name="viraprime-server" content="1">', 1)
+        '<meta charset="utf-8">\n<meta name="vhirprimerlab-server" content="1">', 1)
 
     @app.get("/", include_in_schema=False)
     def index() -> HTMLResponse:
@@ -161,7 +161,7 @@ def create_app(
             for p in paths:
                 zf.write(p, p.name)
         return Response(buf.getvalue(), media_type="application/zip", headers={
-            "Content-Disposition": f'attachment; filename="viraprime-{job_id[:8]}.zip"'})
+            "Content-Disposition": f'attachment; filename="vhirprimerlab-{job_id[:8]}.zip"'})
 
     return app
 

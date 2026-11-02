@@ -1,6 +1,6 @@
 """Background jobs for the web app: a queue, a few worker processes, and cleanup.
 
-Each job runs `viraprime` (cli.main) in its own process inside its own directory, so
+Each job runs `vhirprimerlab` (cli.main) in its own process inside its own directory, so
 logs never mix and a job that runs too long can be stopped.
 """
 
@@ -21,15 +21,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from viraprime.web.params import Limits
-from viraprime.web.result import OUTPUT_FILES, build_result
+from vhirprimerlab.web.params import Limits
+from vhirprimerlab.web.result import OUTPUT_FILES, build_result
 
 Target = Callable[[Path, list[str]], None]
 
 
 def run_job(job_dir: Path, argv: list[str]) -> None:
-    """Child-process entry point: run viraprime in job_dir and write result.json."""
-    from viraprime.cli import main  # imported in the child
+    """Child-process entry point: run vhirprimerlab in job_dir and write result.json."""
+    from vhirprimerlab.cli import main  # imported in the child
 
     job_dir = Path(job_dir)
     os.chdir(job_dir)

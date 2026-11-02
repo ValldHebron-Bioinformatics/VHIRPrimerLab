@@ -6,7 +6,7 @@ import logging
 import statistics
 from typing import Literal
 
-from viraprime.models import LengthFilterResult, PipelineError, Record
+from vhirprimerlab.models import LengthFilterResult, PipelineError, Record
 
 log = logging.getLogger(__name__)
 

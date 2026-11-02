@@ -7,7 +7,7 @@ from typing import Any
 
 import primer3
 
-from viraprime.models import (
+from vhirprimerlab.models import (
     CandidatePair,
     Consensus,
     DesignParams,

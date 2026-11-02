@@ -1,12 +1,12 @@
 name: Deploy site to GitHub Pages
 
-# The landing page (site/) and the web app under app/, which runs viraprime in the browser.
-# tools/build_site.py assembles both into _site with the engine files and a fresh viraprime wheel.
+# The landing page (site/) and the web app under app/, which runs vhirprimerlab in the browser.
+# tools/build_site.py assembles both into _site with the engine files and a fresh vhirprimerlab wheel.
 
 on:
   push:
     branches: [master]
-    paths: ["site/**", "viraprime/**", "pyproject.toml", "tools/build_site.py", ".github/workflows/pages.yml"]
+    paths: ["site/**", "vhirprimerlab/**", "pyproject.toml", "tools/build_site.py", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:

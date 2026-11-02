@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from viraprime import align
-from viraprime.align import check_binary, run_aligner
-from viraprime.io import alignment_from_records, load_alignment, write_alignment
-from viraprime.models import Alignment, PipelineError, Record
+from vhirprimerlab import align
+from vhirprimerlab.align import check_binary, run_aligner
+from vhirprimerlab.io import alignment_from_records, load_alignment, write_alignment
+from vhirprimerlab.models import Alignment, PipelineError, Record
 from tests.conftest import needs_mafft
 from tests.synthetic import write_fasta
 

@@ -6,12 +6,12 @@ from types import SimpleNamespace
 import pytest
 
 from tests.synthetic import make_genome_family
-from viraprime import tiling
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.coords import CoordMap
-from viraprime.io import alignment_from_records
-from viraprime.models import PipelineError, PrimerCandidate, Record, TilingParams
-from viraprime.tiling import choose, geometry, tile
+from vhirprimerlab import tiling
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.io import alignment_from_records
+from vhirprimerlab.models import PipelineError, PrimerCandidate, Record, TilingParams
+from vhirprimerlab.tiling import choose, geometry, tile
 
 PARAMS = TilingParams(
     n_amplicons=5, overlap=50, tm_min=57, tm_opt=60, tm_max=63, max_tm_diff=2,
@@ -118,7 +118,7 @@ def test_widening_reported(family, monkeypatch, caplog) -> None:
         return None if geom.tolerance == 0.20 else real(fwds, revs, n, geom, params, genome_len)
 
     monkeypatch.setattr(tiling, "choose", strict_fails)
-    with caplog.at_level(logging.INFO, logger="viraprime"):
+    with caplog.at_level(logging.INFO, logger="vhirprimerlab"):
         res = tile(*family, PARAMS)
     assert res.geometry.tolerance == 0.35
     assert "±35 %" in caplog.text
@@ -141,7 +141,7 @@ def test_dimer_warning_format(family, monkeypatch) -> None:
     monkeypatch.setattr(tiling.primer3, "calc_heterodimer", lambda a, b: SimpleNamespace(dg=-12000.0))
     res = tile(*family, PARAMS)
     assert res.dimer_warnings
-    assert res.dimer_warnings[0].startswith("pool 1: viraprime_1_LEFT × ")
+    assert res.dimer_warnings[0].startswith("pool 1: VHIRPrimerLab_1_LEFT × ")
     assert "-12.0 kcal/mol" in res.dimer_warnings[0]
 
 

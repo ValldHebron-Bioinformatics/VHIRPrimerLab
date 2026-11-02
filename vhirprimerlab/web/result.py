@@ -39,7 +39,7 @@ def build_result(job_dir: Path, argv: list[str], code: int) -> dict:
     out = job_dir / "out"
     table = out / ("check.tsv" if argv[:1] == ["check"] else "primers.tsv")
     errors = [ln[len("ERROR: "):] for ln in lines if ln.startswith("ERROR: ")]
-    usage = [ln.split("error: ", 1)[1] for ln in lines if "error: " in ln and ln.startswith("viraprime")]
+    usage = [ln.split("error: ", 1)[1] for ln in lines if "error: " in ln and ln.startswith("vhirprimerlab")]
     ref, ref_len = reference(out)
     return {
         "exit_code": code,

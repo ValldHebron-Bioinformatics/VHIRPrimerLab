@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.io import load_fasta
-from viraprime.models import PipelineError, Record
+from vhirprimerlab.io import load_fasta
+from vhirprimerlab.models import PipelineError, Record
 from tests.synthetic import write_fasta
 
 

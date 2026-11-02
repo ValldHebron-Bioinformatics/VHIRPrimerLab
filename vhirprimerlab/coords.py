@@ -9,7 +9,7 @@ import bisect
 import logging
 from typing import Literal
 
-from viraprime.models import Alignment, Consensus, PipelineError, Region
+from vhirprimerlab.models import Alignment, Consensus, PipelineError, Region
 
 log = logging.getLogger(__name__)
 

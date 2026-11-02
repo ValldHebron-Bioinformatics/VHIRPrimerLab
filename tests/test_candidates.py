@@ -6,12 +6,12 @@ import pytest
 from Bio.Seq import reverse_complement
 
 from tests.synthetic import make_genome_family
-from viraprime.candidates import enumerate_primers, pick_conserved, score_primers
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.degenerate import degenerate_site, fold
-from viraprime.io import alignment_from_records
-from viraprime.models import Record, ScoringParams, TilingParams
-from viraprime.scoring import match_primer
+from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.degenerate import degenerate_site, fold
+from vhirprimerlab.io import alignment_from_records
+from vhirprimerlab.models import Record, ScoringParams, TilingParams
+from vhirprimerlab.scoring import match_primer
 
 PARAMS = TilingParams(
     n_amplicons=5, overlap=50, tm_min=57, tm_opt=60, tm_max=63, max_tm_diff=2,
@@ -110,3 +110,13 @@ def test_score_primers_degenerate_rescues(family, raw) -> None:
         assert fold(c.site) <= 4
         if c.site != c.base_seq:
             assert c.tm_range is not None
+
+
+def test_degenerate_site_keeps_gc_within_limits() -> None:
+    # 8 G/C of 20 = 40 % GC; making position 10 (G) into R (A/G) drops the average to 37.5 %
+    site = "AATTGCAGCTGCATGCATAT"
+    variant = site[:10] + "A" + site[11:]
+    aln = _aln([site] * 5 + [variant] * 5)
+    strict = ScoringParams(0, 5)
+    assert degenerate_site(site, list(range(20)), aln, strict, 4, "right") != site
+    assert degenerate_site(site, list(range(20)), aln, strict, 4, "right", gc_limits=(40, 60)) == site

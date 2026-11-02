@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from viraprime.cli import main
+from vhirprimerlab.cli import main
 from tests.conftest import needs_mafft
 from tests.synthetic import make_family, write_fasta
 

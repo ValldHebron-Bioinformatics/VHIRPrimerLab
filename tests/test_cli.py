@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.cli import main
+from vhirprimerlab.cli import main
 from tests.conftest import needs_mafft
 from tests.synthetic import make_family
 

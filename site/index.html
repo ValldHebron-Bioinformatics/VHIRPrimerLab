@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>viraprime — PCR primers that fit every strain</title>
-<meta name="description" content="viraprime designs PCR primer pairs on the consensus of a virus family, then re-checks every pair against every sequence and ranks it by how many it really amplifies.">
+<title>VHIRPrimerLab — PCR primers that fit every strain</title>
+<meta name="description" content="VHIRPrimerLab designs PCR primer pairs on the consensus of a virus family, then re-checks every pair against every sequence and ranks it by how many it really amplifies.">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#ffffff">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
@@ -18,7 +18,7 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <header class="bar wrap">
-  <a class="wordmark" translate="no" href="#top" aria-label="viraprime, back to top">viraprime</a>
+  <a class="wordmark" translate="no" href="#top" aria-label="VHIRPrimerLab, back to top">VHIRPrimerLab</a>
   <nav aria-label="Main">
     <ul>
       <li><a href="#how">How it works</a></li>
@@ -27,7 +27,7 @@
       <li><a href="#faq">FAQ</a></li>
     </ul>
   </nav>
-  <a class="btn btn-ink" href="https://github.com/ValldHebron-Bioinformatics/viraprime">GitHub</a>
+  <a class="btn btn-ink" href="https://github.com/ValldHebron-Bioinformatics/VHIRPrimerLab">GitHub</a>
 </header>
 
 <main id="main">
@@ -36,7 +36,7 @@
 <section class="hero wrap" id="top" aria-labelledby="hero-title">
   <div class="hero-copy" data-reveal>
     <h1 id="hero-title" class="r">Primers that fit every strain</h1>
-    <p class="lead r">Drop your genomes, say how many amplicons you want, and viraprime tiles the whole genome with overlapping primer pairs in two pools, each one checked against every sequence.</p>
+    <p class="lead r">Drop your genomes, say how many amplicons you want, and VHIRPrimerLab tiles the whole genome with overlapping primer pairs in two pools, each one checked against every sequence.</p>
     <div class="actions r">
       <a class="btn btn-accent" href="app/" data-app-url>Open the web app</a>
       <a class="link-arrow" href="#start">Or install the command line <span aria-hidden="true">→</span></a>
@@ -90,7 +90,7 @@
   </figure>
   <div class="why-copy" data-reveal>
     <h2 id="why-title" class="r">One reference is not the family</h2>
-    <p class="r">A primer copied from a single genome can fail on the strain in the next sample. viraprime starts from all of them: it aligns your sequences, takes the majority base at every column, and keeps only the pairs that still bind when each strain is tested on its own.</p>
+    <p class="r">A primer copied from a single genome can fail on the strain in the next sample. VHIRPrimerLab starts from all of them: it aligns your sequences, takes the majority base at every column, and keeps only the pairs that still bind when each strain is tested on its own.</p>
     <dl class="facts r">
       <div><dt>802 of 1,202</dt><dd>alignment columns fully conserved in the example family</dd></div>
       <div><dt>100% vs 30%</dt><dd>best coverage in its conserved and hypervariable regions</dd></div>
@@ -167,7 +167,7 @@
     <input type="search" id="opt-q" class="opt-q" placeholder="degenerate, region, Tm…" autocomplete="off" spellcheck="false" aria-controls="opt-list">
     <ul class="opt-list" id="opt-list" role="list">
       <li><button type="button" aria-expanded="true"><span class="opt-name">Number of amplicons</span><code translate="no">-n 10</code></button>
-        <p>The one setting you need. viraprime tiles the whole genome with that many overlapping amplicons, odd ones in pool 1 and even ones in pool 2, chosen so the weakest still covers as many sequences as possible.</p></li>
+        <p>The one setting you need. VHIRPrimerLab tiles the whole genome with that many overlapping amplicons, odd ones in pool 1 and even ones in pool 2, chosen so the weakest still covers as many sequences as possible.</p></li>
       <li><button type="button" aria-expanded="false"><span class="opt-name">Overlap</span><code translate="no">--overlap 50</code></button>
         <p>Neighbouring amplicons share at least 50 bases between their primers, so the reads join up across the whole genome.</p></li>
       <li><button type="button" aria-expanded="false"><span class="opt-name">Degenerate bases</span><code translate="no">--max-degeneracy 4</code></button>
@@ -184,7 +184,7 @@
         <p>Sequences more than 10% away from the median length are dropped, kept with a warning, or stop the run.</p></li>
       <li><button type="button" aria-expanded="false"><span class="opt-name">Your own alignment</span><code translate="no">--aligned</code></button>
         <p>Pass a pre-aligned FASTA and skip MAFFT or MUSCLE entirely.</p></li>
-      <li><button type="button" aria-expanded="false"><span class="opt-name">Check existing primers</span><code translate="no">viraprime check --primers assays.tsv</code></button>
+      <li><button type="button" aria-expanded="false"><span class="opt-name">Check existing primers</span><code translate="no">vhirprimerlab check --primers assays.tsv</code></button>
         <p>Test published or earlier assays against your sequences with the same rules, without designing new ones. Each pair gets a row in check.tsv.</p></li>
       <li><button type="button" aria-expanded="false"><span class="opt-name">Primer chemistry</span><code translate="no">--tm-opt 60</code></button>
         <p>Tm 57–63 °C and within 2 °C inside a pair, 18–25 bases, 40–60% GC. Every limit has its own flag.</p></li>
@@ -213,7 +213,7 @@
       <li><button type="button" aria-expanded="true" aria-controls="a9">Do I need to install anything?</button>
         <p id="a9">No. Open the web app, drop your FASTA and choose the number of amplicons. The analysis runs in your browser, so your sequences are never uploaded. For very large sets, the command line is faster.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a1">Why not run primer3 on the consensus and stop there?</button>
-        <p id="a1">A consensus is a sequence that may exist in no real sample. A pair that fits it can still miss several strains, often right at its 3′ end. viraprime keeps primer3’s design and judges every pair on the real sequences.</p></li>
+        <p id="a1">A consensus is a sequence that may exist in no real sample. A pair that fits it can still miss several strains, often right at its 3′ end. VHIRPrimerLab keeps primer3’s design and judges every pair on the real sequences.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a2">What counts as a mismatch?</button>
         <p id="a2">A different base, a gap, an N or any ambiguous base in the sequence, and every base the sequence has in addition to the primer. A degenerate primer base matches each base it stands for.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a3">What does exit code 2 mean?</button>
@@ -221,7 +221,7 @@
       <li><button type="button" aria-expanded="false" aria-controls="a4">Can I bring my own alignment?</button>
         <p id="a4">Yes. Pass it with --aligned and the aligner step is skipped, so neither MAFFT nor MUSCLE needs to be installed.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a8">Can I test primers I already have?</button>
-        <p id="a8">Yes. List them as name, forward and reverse in a tab-separated file and run viraprime check. Each pair is found on the consensus and scored on every sequence with the same rules as design.</p></li>
+        <p id="a8">Yes. List them as name, forward and reverse in a tab-separated file and run vhirprimerlab check. Each pair is found on the consensus and scored on every sequence with the same rules as design.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a5">Which coordinates do regions use?</button>
         <p id="a5">1-based, inclusive positions on the reference sequence: the first one in the file, unless you name another with --reference-id. They are mapped to alignment columns for you.</p></li>
       <li><button type="button" aria-expanded="false" aria-controls="a6">How is a degenerate base chosen?</button>
@@ -259,7 +259,7 @@
         </fieldset>
         <label class="chk" data-only="tile design"><input type="checkbox" name="deg" checked> Allow degenerate bases</label>
       </div>
-      <pre class="cmd"><code translate="no" id="cmd">viraprime -i genomes.fasta -n 10 -o out</code></pre>
+      <pre class="cmd"><code translate="no" id="cmd">vhirprimerlab -i genomes.fasta -n 10 -o out</code></pre>
       <p class="dlg-err" id="dlg-err" role="alert"></p>
       <div class="dlg-actions">
         <button type="submit" class="btn btn-ink" id="copy">Copy command</button>
@@ -272,11 +272,11 @@
 </main>
 
 <footer class="foot wrap">
-  <p>viraprime: primers that fit every strain</p>
+  <p>VHIRPrimerLab: primers that fit every strain</p>
   <ul role="list">
-    <li><a href="https://github.com/ValldHebron-Bioinformatics/viraprime">GitHub</a></li>
-    <li><a href="https://github.com/ValldHebron-Bioinformatics/viraprime#readme">README</a></li>
-    <li><a href="https://github.com/ValldHebron-Bioinformatics/viraprime/issues">Issues</a></li>
+    <li><a href="https://github.com/ValldHebron-Bioinformatics/VHIRPrimerLab">GitHub</a></li>
+    <li><a href="https://github.com/ValldHebron-Bioinformatics/VHIRPrimerLab#readme">README</a></li>
+    <li><a href="https://github.com/ValldHebron-Bioinformatics/VHIRPrimerLab/issues">Issues</a></li>
   </ul>
   <p class="foot-r">2026 · Vall d’Hebron Bioinformatics</p>
   <p class="credits">Pictures and clip via Wikimedia Commons: <a href="https://commons.wikimedia.org/wiki/File:Influenza_A_Virus_(H1N1)-1.jpg">Influenza A Virus (H1N1)</a> by NIH Image Gallery, public domain; <a href="https://commons.wikimedia.org/wiki/File:Colorized_transmission_electron_micrograph_of_Avian_influenza_A_H5N1_viruses.jpg">Avian influenza A H5N1</a> by Cynthia Goldsmith, CDC, public domain; <a href="https://commons.wikimedia.org/wiki/File:Novel_Coronavirus_SARS-CoV-2_(49597020718).jpg">Novel Coronavirus SARS-CoV-2</a> by NIAID, <a href="https://creativecommons.org/licenses/by/2.0">CC BY 2.0</a>; <a href="https://commons.wikimedia.org/wiki/File:MERS_Coronavirus_Particles.jpg">MERS Coronavirus Particles</a> by NIAID, public domain; <a href="https://commons.wikimedia.org/wiki/File:Thermal_cycler_for_PCR.jpg">Thermal cycler for PCR</a> by Juan Carlos Fonseca Mata, <a href="https://creativecommons.org/licenses/by-sa/4.0">CC BY-SA 4.0</a>; <a href="https://commons.wikimedia.org/wiki/File:Gel_electrophoresis_2.jpg">Gel electrophoresis 2</a> by Mnolf, <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>. Clip: <a href="https://commons.wikimedia.org/wiki/File:Pipette_mixing_technique.webm">Pipette mixing technique</a> by Cirosantilli2, <a href="https://creativecommons.org/licenses/by-sa/4.0">CC BY-SA 4.0</a>.</p>

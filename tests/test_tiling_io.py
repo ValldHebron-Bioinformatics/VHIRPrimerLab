@@ -7,17 +7,17 @@ from pathlib import Path
 import pytest
 
 from tests.synthetic import make_genome_family
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.coords import CoordMap
-from viraprime.io import (
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.io import (
     TILING_TSV_COLUMNS,
     alignment_from_records,
     write_scheme_bed,
     write_tiling_report,
     write_tiling_tsv,
 )
-from viraprime.models import LengthFilterResult, PairCoverage, Record, TilingParams, TilingReport
-from viraprime.tiling import tile
+from vhirprimerlab.models import LengthFilterResult, PairCoverage, Record, TilingParams, TilingReport
+from vhirprimerlab.tiling import tile
 
 PARAMS = TilingParams(
     n_amplicons=5, overlap=50, tm_min=57, tm_opt=60, tm_max=63, max_tm_diff=2,
@@ -44,7 +44,7 @@ def test_tsv(run, tmp_path: Path) -> None:
         fh.seek(0)
         assert fh.readline().rstrip("\n").split("\t") == TILING_TSV_COLUMNS
     assert len(rows) == 5
-    assert rows[0]["forward_name"] == "viraprime_1_LEFT" and rows[0]["reverse_name"] == "viraprime_1_RIGHT"
+    assert rows[0]["forward_name"] == "VHIRPrimerLab_1_LEFT" and rows[0]["reverse_name"] == "VHIRPrimerLab_1_RIGHT"
     assert [r["pool"] for r in rows] == ["1", "2", "1", "2", "1"]
     assert rows[-1]["overlap_next"] == "" and int(rows[0]["overlap_next"]) >= 50
     assert int(rows[0]["amplicon_len"]) == int(rows[0]["amplicon_end"]) - int(rows[0]["amplicon_start"]) + 1
@@ -63,13 +63,13 @@ def test_bed(run, tmp_path: Path) -> None:
         start, end = int(ln[1]), int(ln[2])
         assert start < end and end - start == primer.length
         assert ln[6] == primer.seq
-    assert lines[0][3] == "viraprime_1_LEFT" and lines[1][3] == "viraprime_1_RIGHT"
+    assert lines[0][3] == "VHIRPrimerLab_1_LEFT" and lines[1][3] == "VHIRPrimerLab_1_RIGHT"
 
 
 def _report(result, records) -> TilingReport:
     lf = LengthFilterResult(kept=records, outliers=[], median=6000.0, action="drop")
     return TilingReport(
-        command="viraprime -n 5", params={"amplicons": 5}, n_input=12, median_len=6000.0,
+        command="vhirprimerlab -n 5", params={"amplicons": 5}, n_input=12, median_len=6000.0,
         min_len=6000, max_len=6000, length=lf, reference_id="g01", aln_length=6000,
         cons_length=6000, n_conserved=5000, mean_conservation=0.99, min_coverage=95.0,
         result=result, log_lines=["INFO: hello"],
@@ -80,7 +80,7 @@ def test_report_all_pass(run, tmp_path: Path) -> None:
     result, cmap, records = run
     write_tiling_report(_report(result, records), cmap, tmp_path / "report.txt")
     text = (tmp_path / "report.txt").read_text()
-    assert text.startswith("viraprime tiling report")
+    assert text.startswith("VHIRPrimerLab tiling report")
     for needle in ("Target length:", "Candidate primers:", "Not covered at the ends:",
                    "Primer dimers", "All amplicons meet 95", "INFO: hello"):
         assert needle in text
@@ -98,3 +98,17 @@ def test_report_below_threshold(run, tmp_path: Path) -> None:
     text = (tmp_path / "report.txt").read_text()
     assert "Amplicons below 95 % coverage: 3" in text
     assert "fwd 3' mismatch: 6" in text
+
+
+def test_tsv_per_primer_degeneracy(run, tmp_path: Path) -> None:
+    from vhirprimerlab.degenerate import degenerate_bases, fold, gc_percent
+    result, cmap, _ = run
+    write_tiling_tsv(result, cmap, tmp_path / "primers.tsv")
+    with (tmp_path / "primers.tsv").open() as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    for r in rows:
+        for side in ("forward", "reverse"):
+            seq = r[f"{side}_seq"]
+            assert r[f"{side}_degenerate_bases"] == str(degenerate_bases(seq))
+            assert r[f"{side}_variants"] == str(fold(seq))
+            assert r[f"{side}_gc"] == f"{gc_percent(seq):.1f}"

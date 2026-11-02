@@ -15,13 +15,13 @@ from typing import Callable, NoReturn
 
 from Bio.Seq import reverse_complement
 
-from viraprime.align import run_aligner
-from viraprime.check import check_assay, load_assays
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.coords import CoordMap
-from viraprime.degenerate import degenerate_pair, tm_range
-from viraprime.design import run_primer3
-from viraprime.io import (
+from vhirprimerlab.align import run_aligner
+from vhirprimerlab.check import check_assay, load_assays
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.degenerate import degenerate_pair, tm_range
+from vhirprimerlab.design import run_primer3
+from vhirprimerlab.io import (
     alignment_from_records,
     load_fasta,
     write_alignment,
@@ -33,8 +33,8 @@ from viraprime.io import (
     write_tiling_tsv,
     write_tsv,
 )
-from viraprime.lengths import filter_by_length, ungapped_length
-from viraprime.models import (
+from vhirprimerlab.lengths import filter_by_length, ungapped_length
+from vhirprimerlab.models import (
     Alignment,
     CandidatePair,
     CheckReport,
@@ -52,12 +52,12 @@ from viraprime.models import (
     TilingParams,
     TilingReport,
 )
-from viraprime.ranking import failure_summary, rank
-from viraprime.regions import resolve_regions
-from viraprime.scoring import score_pair
-from viraprime.tiling import tile
+from vhirprimerlab.ranking import failure_summary, rank
+from vhirprimerlab.regions import resolve_regions
+from vhirprimerlab.scoring import score_pair
+from vhirprimerlab.tiling import tile
 
-log = logging.getLogger("viraprime")
+log = logging.getLogger("vhirprimerlab")
 
 EXIT_OK, EXIT_ERROR, EXIT_BELOW_THRESHOLD = 0, 1, 2
 
@@ -81,12 +81,12 @@ class _Parser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     p = _Parser(
-        prog="viraprime",
+        prog="vhirprimerlab",
         description="Design consensus PCR primers from a multi-FASTA of related sequences. "
-                    "Simplest use: viraprime -i genomes.fasta -n 10 -o out (tile the whole "
+                    "Simplest use: vhirprimerlab -i genomes.fasta -n 10 -o out (tile the whole "
                     "genome with 10 overlapping amplicons in 2 pools).",
-        epilog="To test primer pairs you already have: viraprime check --help. "
-               "To run the web app locally: viraprime web",
+        epilog="To test primer pairs you already have: vhirprimerlab check --help. "
+               "To run the web app locally: vhirprimerlab web",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     src = p.add_mutually_exclusive_group(required=True)
@@ -181,6 +181,7 @@ def _score_candidate(
     sparams: ScoringParams,
     allow_degenerate: bool,
     max_fold: int,
+    gc_limits: tuple[float, float] | None = None,
 ) -> ScoredPair:
     f, r = cand.forward, cand.reverse
     fwd_cols = cons.cons_to_col[f.start: f.start + f.length]
@@ -190,7 +191,7 @@ def _score_candidate(
     fwd_seq, rev_seq, degenerate = f.seq, r.seq, False
     if allow_degenerate and cov.not_covered:
         new_f, new_r, new_cov = degenerate_pair(
-            fwd_site, fwd_cols, rev_site, rev_cols, aln, sparams, max_fold
+            fwd_site, fwd_cols, rev_site, rev_cols, aln, sparams, max_fold, gc_limits
         )
         if (new_f, new_r) != (fwd_site, rev_site):
             fwd_seq, rev_seq, cov, degenerate = new_f, reverse_complement(new_r), new_cov, True
@@ -216,7 +217,9 @@ def _design_region(
     except PipelineError as exc:
         raise PipelineError(f"Region '{region.name}': {exc}") from exc
     scored = [
-        _score_candidate(c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy)
+        _score_candidate(
+            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max)
+        )
         for c in design.pairs
     ]
     ranked = rank(scored, a.min_coverage, a.num_pairs)
@@ -413,7 +416,7 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
 
 def build_check_parser() -> argparse.ArgumentParser:
     p = _Parser(
-        prog="viraprime check",
+        prog="vhirprimerlab check",
         description="Check primer pairs you already have against every sequence of a family.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -495,7 +498,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, Callable[..., int],
     """Parse argv for check, tiling or region mode; usage errors exit 1."""
     if argv[:1] == ["check"]:
         args = build_check_parser().parse_args(argv[1:])
-        return args, run_check, "viraprime check " + shlex.join(argv[1:])
+        return args, run_check, "vhirprimerlab check " + shlex.join(argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.amplicons is not None:
@@ -512,7 +515,7 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, Callable[..., int],
         runner = run
     if args.max_degeneracy is None:
         args.max_degeneracy = 4 if args.amplicons is not None else 8
-    return args, runner, "viraprime " + shlex.join(argv)
+    return args, runner, "vhirprimerlab " + shlex.join(argv)
 
 
 def validate_args(a: argparse.Namespace) -> None:
@@ -529,9 +532,9 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["web"]:
         try:
-            from viraprime.web.server import main as web_main
+            from vhirprimerlab.web.server import main as web_main
         except ImportError:
-            print("viraprime web needs: pip install 'viraprime[web]'", file=sys.stderr)
+            print("vhirprimerlab web needs: pip install 'vhirprimerlab[web]'", file=sys.stderr)
             return EXIT_ERROR
         return web_main(argv[1:])
     args, runner, command = parse_args(argv)

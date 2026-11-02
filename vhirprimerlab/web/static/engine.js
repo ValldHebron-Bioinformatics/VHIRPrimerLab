@@ -6,7 +6,7 @@
 //        onEvent({phase: 'loading'|'queued'|'running', stage, progress, queuePosition, jobId})
 //        promise resolves {status: 'done'|'failed', result, error, downloads: [{name, href}], zip}
 //        and rejects with an Error (err.cancelled when cancelled, err.invalid for bad input)
-// Classic script: defines window.ViraEngines.
+// Classic script: defines window.VhirEngines.
 (function (root) {
   'use strict';
 
@@ -54,7 +54,7 @@
             resolve({
               status: st.status, result: st.result, error: st.error, jobId,
               downloads: FILES[m].map((name) => ({ name, href: `/api/jobs/${jobId}/files/${name}` })),
-              zip: { name: `viraprime-${jobId.slice(0, 8)}.zip`, href: `/api/jobs/${jobId}/zip` },
+              zip: { name: `vhirprimerlab-${jobId.slice(0, 8)}.zip`, href: `/api/jobs/${jobId}/zip` },
             });
             return;
           }
@@ -117,7 +117,7 @@
     };
   }
 
-  // ---------- browser: a worker running viraprime in Pyodide ----------
+  // ---------- browser: a worker running vhirprimerlab in Pyodide ----------
   function createBrowserEngine(workerUrl) {
     let worker = null;
     let urls = [];
@@ -167,7 +167,7 @@
                 result: m.result,
                 error: m.result.error,
                 downloads: FILES[mode].filter((n) => n in m.files).map((n) => link(n, m.files[n], 'text/plain')),
-                zip: link('viraprime-results.zip', m.zip, 'application/zip'),
+                zip: link('vhirprimerlab-results.zip', m.zip, 'application/zip'),
               });
             }
           };
@@ -190,11 +190,11 @@
     };
   }
 
-  // The server engine when this page is served by viraprime web / Docker (the server marks the
-  // page with <meta name="viraprime-server">), else the browser.
+  // The server engine when this page is served by vhirprimerlab web / Docker (the server marks the
+  // page with <meta name="vhirprimerlab-server">), else the browser.
   async function pickEngine() {
     const marked = typeof document !== 'undefined'
-      && document.querySelector('meta[name="viraprime-server"]');
+      && document.querySelector('meta[name="vhirprimerlab-server"]');
     if (!marked) return createBrowserEngine(); // GitHub Pages or any static copy of the page
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     const timer = setTimeout(() => controller && controller.abort(), 2000);
@@ -212,5 +212,5 @@
     return createBrowserEngine();
   }
 
-  root.ViraEngines = { pickEngine, createServerEngine, createBrowserEngine, FILES, BROWSER_LIMITS };
+  root.VhirEngines = { pickEngine, createServerEngine, createBrowserEngine, FILES, BROWSER_LIMITS };
 })(typeof window !== 'undefined' ? window : globalThis);

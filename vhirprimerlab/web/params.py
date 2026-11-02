@@ -1,4 +1,4 @@
-"""Web settings: limits, and translating form settings into viraprime arguments."""
+"""Web settings: limits, and translating form settings into vhirprimerlab arguments."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from viraprime.io import load_fasta
-from viraprime.lengths import ungapped_length
-from viraprime.models import PipelineError
+from vhirprimerlab.io import load_fasta
+from vhirprimerlab.lengths import ungapped_length
+from vhirprimerlab.models import PipelineError
 
 MODES = ("tile", "regions", "check")
 
@@ -27,10 +27,10 @@ class Limits:
 
     @classmethod
     def from_env(cls) -> Limits:
-        """Defaults, overridden by VIRAPRIME_<FIELD> environment variables."""
+        """Defaults, overridden by VHIRPRIMERLAB_<FIELD> environment variables."""
         values = {}
         for name, default in cls().__dict__.items():
-            raw = os.environ.get(f"VIRAPRIME_{name.upper()}")
+            raw = os.environ.get(f"VHIRPRIMERLAB_{name.upper()}")
             if raw is not None:
                 values[name] = type(default)(raw)
         return cls(**values)
@@ -88,7 +88,7 @@ def _number(key: str, value: object, kind: type) -> str:
 
 
 def build_argv(mode: str, params: dict[str, object]) -> list[str]:
-    """viraprime flags for the given settings (only whitelisted settings are accepted)."""
+    """vhirprimerlab flags for the given settings (only whitelisted settings are accepted)."""
     if mode not in SETTINGS:
         raise ValueError(f"unknown mode: {mode}")
     allowed = SETTINGS[mode]

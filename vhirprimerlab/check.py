@@ -9,8 +9,8 @@ from pathlib import Path
 import primer3
 from Bio.Seq import reverse_complement
 
-from viraprime.degenerate import fold, tm_range
-from viraprime.models import (
+from vhirprimerlab.degenerate import fold, gc_percent, tm_range
+from vhirprimerlab.models import (
     Alignment,
     Assay,
     CheckResult,
@@ -20,10 +20,10 @@ from viraprime.models import (
     PipelineError,
     ScoringParams,
 )
-from viraprime.regions import NAME_RE
-from viraprime.scoring import IUPAC, score_pair
+from vhirprimerlab.regions import NAME_RE
+from vhirprimerlab.scoring import IUPAC, score_pair
 
-log = logging.getLogger("viraprime")
+log = logging.getLogger("vhirprimerlab")
 
 TM_FOLD_LIMIT = 256  # above this, enumerating every expansion for a Tm range is too slow
 NOT_DOWNSTREAM = "reverse site is not downstream of forward site"
@@ -105,11 +105,6 @@ def locate(site: str, consensus_seq: str) -> Location | None:
     return Location(starts[0], best) if len(starts) == 1 else None
 
 
-def _gc(primer: str) -> float:
-    """Mean GC % over every expansion of a (possibly degenerate) primer."""
-    return 100 * sum(len(IUPAC[b] & {"G", "C"}) / len(IUPAC[b]) for b in primer) / len(primer)
-
-
 def _tm(primer: str, label: str, notes: list[str]) -> tuple[float | None, tuple[float, float] | None]:
     n = fold(primer)
     if n == 1:
@@ -167,7 +162,7 @@ def check_assay(
         assay=assay, located=located, note="; ".join(notes), fwd=fwd, rev=rev,
         fwd_cols=list(fwd_cols), rev_cols=list(rev_cols), coverage=coverage,
         fwd_tm=fwd_tm, rev_tm=rev_tm, fwd_tm_range=fwd_range, rev_tm_range=rev_range,
-        fwd_gc=_gc(assay.forward), rev_gc=_gc(assay.reverse),
+        fwd_gc=gc_percent(assay.forward), rev_gc=gc_percent(assay.reverse),
         degenerate=fold(assay.forward) > 1 or fold(assay.reverse) > 1,
         below_threshold=not located or coverage.coverage_pct < min_coverage,
     )

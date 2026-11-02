@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from viraprime.models import Alignment, MatchResult, PairCoverage, ScoringParams
+from vhirprimerlab.models import Alignment, MatchResult, PairCoverage, ScoringParams
 
 IUPAC: dict[str, frozenset[str]] = {
     "A": frozenset("A"), "C": frozenset("C"), "G": frozenset("G"), "T": frozenset("T"),

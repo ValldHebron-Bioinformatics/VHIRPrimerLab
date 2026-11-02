@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from viraprime.degenerate import degenerate_pair, fold, tm_range
-from viraprime.models import Alignment, ScoringParams
+from vhirprimerlab.degenerate import degenerate_pair, fold, tm_range
+from vhirprimerlab.models import Alignment, ScoringParams
 
 STRICT = ScoringParams(max_mismatches=0, window=5)
 FWD = "ACGTTGCAAGCTTCGGATCC"
@@ -82,3 +82,27 @@ def test_no_useless_degeneracy_when_rescue_impossible() -> None:
     aln = Alignment(["a", "b"], [row(), b])
     f, r, _ = degenerate_pair(FWD, FCOLS, REV, RCOLS, aln, STRICT, max_fold=8)
     assert f == FWD and r == REV
+
+
+def test_degenerate_bases_counts_non_acgt() -> None:
+    from vhirprimerlab.degenerate import degenerate_bases
+    assert degenerate_bases("ACGTACGT") == 0
+    assert degenerate_bases("ACRTYCGN") == 3
+
+
+def test_gc_percent_is_mean_over_variants() -> None:
+    from vhirprimerlab.degenerate import gc_percent
+    assert gc_percent("GGCC") == 100.0
+    assert gc_percent("AATT") == 0.0
+    assert gc_percent("ASAT") == 25.0  # S is always G or C
+    assert gc_percent("ARAT") == 12.5  # R is A or G: half a G/C on average
+
+
+def test_degenerate_pair_keeps_gc_within_limits() -> None:
+    from vhirprimerlab.degenerate import gc_percent
+    fwd = "AATTGCAGCTGCATGCATAT"  # 40 % GC; a degenerate R at position 10 would drop it to 37.5 %
+    aln = Alignment(["a", "b"], [row(fwd=fwd), row(fwd=sub(fwd, 10, "A"))])
+    f, _, _ = degenerate_pair(fwd, FCOLS, REV, RCOLS, aln, STRICT, max_fold=8)
+    assert f != fwd
+    f, _, cov = degenerate_pair(fwd, FCOLS, REV, RCOLS, aln, STRICT, max_fold=8, gc_limits=(40, 60))
+    assert f == fwd and gc_percent(f) == 40.0 and cov.not_covered == {"b": cov.not_covered["b"]}

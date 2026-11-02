@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import needs_mafft
 from tests.synthetic import make_genome_family
-from viraprime.web.app import create_app
-from viraprime.web.params import Limits
+from vhirprimerlab.web.app import create_app
+from vhirprimerlab.web.params import Limits
 
 GENOMES = "".join(f">{i}\n{s}\n" for i, s in make_genome_family())
 
@@ -110,8 +110,8 @@ def test_bad_fasta_and_too_many(tmp_path: Path) -> None:
         assert r.status_code == 400
 
 
-def test_viraprime_web_help(capsys) -> None:
-    from viraprime.cli import main
+def test_vhirprimerlab_web_help(capsys) -> None:
+    from vhirprimerlab.cli import main
 
     with pytest.raises(SystemExit) as exc:
         main(["web", "--help"])
@@ -162,9 +162,9 @@ def test_page_files_at_the_root(client: TestClient) -> None:
 
 
 def test_served_page_marks_the_server(client: TestClient) -> None:
-    assert '<meta name="viraprime-server" content="1">' in client.get("/").text
-    static = (Path(__file__).resolve().parent.parent / "viraprime/web/static/index.html").read_text()
-    assert "viraprime-server" not in static  # on GitHub Pages the page runs in the browser
+    assert '<meta name="vhirprimerlab-server" content="1">' in client.get("/").text
+    static = (Path(__file__).resolve().parent.parent / "vhirprimerlab/web/static/index.html").read_text()
+    assert "vhirprimerlab-server" not in static  # on GitHub Pages the page runs in the browser
 
 
 def test_delete_cancels_a_job(tmp_path: Path) -> None:

@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 
 from Bio import SeqIO
 
-from viraprime.models import (
+from vhirprimerlab.degenerate import degenerate_bases, fold, gc_percent
+from vhirprimerlab.models import (
     Alignment,
     CheckReport,
     CheckResult,
@@ -22,10 +23,19 @@ from viraprime.models import (
     TilingReport,
     TilingResult,
 )
-from viraprime.ranking import count_reasons
+from vhirprimerlab.ranking import count_reasons
+
+PER_PRIMER_DEGENERACY = [
+    "forward_degenerate_bases", "reverse_degenerate_bases", "forward_variants", "reverse_variants",
+]
+
+
+def _degeneracy(fwd: str, rev: str) -> list[int]:
+    """Values for PER_PRIMER_DEGENERACY."""
+    return [degenerate_bases(fwd), degenerate_bases(rev), fold(fwd), fold(rev)]
 
 if TYPE_CHECKING:
-    from viraprime.coords import CoordMap
+    from vhirprimerlab.coords import CoordMap
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +104,8 @@ def write_alignment(aln: Alignment, path: Path) -> None:
 TSV_COLUMNS = [
     "region", "rank", "forward_seq", "reverse_seq", "forward_tm", "reverse_tm", "forward_gc",
     "reverse_gc", "forward_len", "reverse_len", "amplicon_start", "amplicon_end", "amplicon_len",
-    "coverage_pct", "n_covered", "n_total", "degenerate", "forward_tm_range", "reverse_tm_range",
-    "penalty", "below_threshold", "not_covered",
+    "coverage_pct", "n_covered", "n_total", "degenerate", *PER_PRIMER_DEGENERACY,
+    "forward_tm_range", "reverse_tm_range", "penalty", "below_threshold", "not_covered",
 ]
 
 
@@ -116,11 +126,11 @@ def write_tsv(results: list[RegionResult], cmap: CoordMap, path: Path) -> None:
                 writer.writerow([
                     res.region.name, rank, sp.fwd_seq, sp.rev_seq,
                     f"{sp.pair.forward.tm:.1f}", f"{sp.pair.reverse.tm:.1f}",
-                    f"{sp.pair.forward.gc:.1f}", f"{sp.pair.reverse.gc:.1f}",
+                    f"{gc_percent(sp.fwd_seq):.1f}", f"{gc_percent(sp.rev_seq):.1f}",
                     sp.pair.forward.length, sp.pair.reverse.length,
                     start, end, end - start + 1,
                     f"{cov.coverage_pct:.1f}", len(cov.covered), len(cov.covered) + len(cov.not_covered),
-                    sp.degenerate, _fmt_range(sp.fwd_tm_range), _fmt_range(sp.rev_tm_range),
+                    sp.degenerate, *_degeneracy(sp.fwd_seq, sp.rev_seq), _fmt_range(sp.fwd_tm_range), _fmt_range(sp.rev_tm_range),
                     f"{sp.pair.penalty:.3f}", res.rank.below_threshold,
                     ",".join(f"{sid}({why})" for sid, why in cov.not_covered.items()),
                 ])
@@ -178,7 +188,7 @@ def _header_lines(report: RunReport | CheckReport | TilingReport, title: str) ->
 
 
 def write_report(report: RunReport, path: Path) -> None:
-    out = _header_lines(report, "viraprime report")
+    out = _header_lines(report, "VHIRPrimerLab report")
     for res in report.regions:
         out += _region_section(res, report.min_coverage) + [""]
     failed = [res.region.name for res in report.regions if res.rank.below_threshold]
@@ -196,8 +206,8 @@ def write_report(report: RunReport, path: Path) -> None:
 
 CHECK_TSV_COLUMNS = [
     "name", "forward_seq", "reverse_seq", "forward_tm", "reverse_tm", "forward_gc",
-    "reverse_gc", "forward_len", "reverse_len", "degenerate", "forward_tm_range",
-    "reverse_tm_range", "located", "forward_site_mismatches", "reverse_site_mismatches",
+    "reverse_gc", "forward_len", "reverse_len", "degenerate", *PER_PRIMER_DEGENERACY,
+    "forward_tm_range", "reverse_tm_range", "located", "forward_site_mismatches", "reverse_site_mismatches",
     "amplicon_start", "amplicon_end", "amplicon_len", "coverage_pct", "n_covered",
     "n_total", "below_threshold", "not_covered", "note",
 ]
@@ -235,7 +245,7 @@ def write_check_tsv(results: list[CheckResult], cmap: CoordMap, path: Path) -> N
             writer.writerow([
                 a.name, a.forward, a.reverse, _fmt_tm(res.fwd_tm), _fmt_tm(res.rev_tm),
                 f"{res.fwd_gc:.1f}", f"{res.rev_gc:.1f}", len(a.forward), len(a.reverse),
-                res.degenerate, _fmt_range(res.fwd_tm_range), _fmt_range(res.rev_tm_range),
+                res.degenerate, *_degeneracy(a.forward, a.reverse), _fmt_range(res.fwd_tm_range), _fmt_range(res.rev_tm_range),
                 res.located,
                 res.fwd.mismatches if res.located else "", res.rev.mismatches if res.located else "",
                 *(amp + (amp[1] - amp[0] + 1,) if amp else ("", "", "")),
@@ -274,7 +284,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
 
 
 def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
-    out = _header_lines(report, "viraprime check report")
+    out = _header_lines(report, "VHIRPrimerLab check report")
     for res in report.results:
         out += _pair_section(res, cmap) + [""]
     low = [res.assay.name for res in report.results if res.below_threshold]
@@ -290,14 +300,14 @@ def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
 TILING_TSV_COLUMNS = [
     "amplicon", "pool", "forward_name", "forward_seq", "reverse_name", "reverse_seq",
     "forward_tm", "reverse_tm", "forward_gc", "reverse_gc", "forward_len", "reverse_len",
-    "degenerate", "forward_tm_range", "reverse_tm_range", "amplicon_start", "amplicon_end",
-    "amplicon_len", "overlap_next", "coverage_pct", "n_covered", "n_total",
+    "degenerate", *PER_PRIMER_DEGENERACY, "forward_tm_range", "reverse_tm_range",
+    "amplicon_start", "amplicon_end", "amplicon_len", "overlap_next", "coverage_pct", "n_covered", "n_total",
     "below_threshold", "not_covered",
 ]
 
 
 def _names(index: int) -> tuple[str, str]:
-    return f"viraprime_{index}_LEFT", f"viraprime_{index}_RIGHT"
+    return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
 
 
 def _span(first_col: int, last_col: int, cmap: CoordMap) -> tuple[int, int] | None:
@@ -323,6 +333,7 @@ def write_tiling_tsv(result: TilingResult, cmap: CoordMap, path: Path) -> None:
                 f"{a.fwd.tm:.1f}", f"{a.rev.tm:.1f}", f"{a.fwd.gc:.1f}", f"{a.rev.gc:.1f}",
                 a.fwd.length, a.rev.length,
                 a.fwd.tm_range is not None or a.rev.tm_range is not None,
+                *_degeneracy(a.fwd.seq, a.rev.seq),
                 _fmt_range(a.fwd.tm_range), _fmt_range(a.rev.tm_range),
                 *(span if span else ("", "")), span[1] - span[0] + 1 if span else "",
                 "" if a.overlap_next is None else a.overlap_next,
@@ -350,7 +361,7 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
-    out = _header_lines(report, "viraprime tiling report")
+    out = _header_lines(report, "VHIRPrimerLab tiling report")
     out += ["Tiling", "------",
             f"Amplicons: {len(res.amplicons)}",
             f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "

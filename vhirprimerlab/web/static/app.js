@@ -1,4 +1,4 @@
-/* viraprime web app: read sequences in the browser, start a job, follow it, draw the result. */
+/* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -41,7 +41,7 @@
       ? 'Paste primer pairs you already have and see how many of your sequences each pair amplifies, with the same matching rules as design.'
       : 'Drop your genomes, choose how many amplicons you want, and get overlapping primer pairs in two pools, checked against every sequence.';
     $('run').textContent = check ? 'Check primers' : 'Design primers';
-    document.title = `viraprime: ${check ? 'check primers' : 'tile a genome with primers'}`;
+    document.title = `VHIRPrimerLab: ${check ? 'check primers' : 'tile a genome with primers'}`;
     if (!state.job) showIdle();
   }
 
@@ -330,10 +330,26 @@
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }
 
-  function primerCell(fwd, rev, owner) {
+  // "21 nt · Tm 60.3 °C (59.4–61.2) · GC 47.6 % · 1 degenerate base (2 variants)"
+  function primerFacts(r, side) {
+    const seq = r[`${side}_seq`] || '';
+    const parts = [`${r[`${side}_len`] || seq.length} nt`];
+    const tm = r[`${side}_tm`];
+    const range = r[`${side}_tm_range`];
+    if (tm) parts.push(`Tm ${tm} °C${range ? ` (${range.replace('-', '–')})` : ''}`);
+    if (r[`${side}_gc`]) parts.push(`GC ${r[`${side}_gc`]} %`);
+    const nd = +(r[`${side}_degenerate_bases`] ?? [...seq].filter((b) => !'ACGT'.includes(b)).length);
+    parts.push(nd
+      ? `${nd} degenerate base${nd === 1 ? '' : 's'} (${fmt(+r[`${side}_variants`] || 0)} variants)`
+      : 'no degenerate bases');
+    return parts.join(' · ');
+  }
+
+  function primerCell(r, owner) {
     const td = document.createElement('td');
     td.className = 'wide primers';
-    [['F', fwd, 'forward'], ['R', rev, 'reverse']].forEach(([tag, seq, what]) => {
+    [['F', 'forward'], ['R', 'reverse']].forEach(([tag, what]) => {
+      const seq = r[`${what}_seq`];
       const line = document.createElement('span');
       line.className = 'seq';
       const mark = document.createElement('span');
@@ -348,7 +364,10 @@
       btn.setAttribute('aria-label', `Copy the ${what} primer of ${owner}`);
       btn.addEventListener('click', () => copy(seq, btn));
       line.append(mark, code, btn);
-      td.append(line);
+      const facts = document.createElement('span');
+      facts.className = 'facts';
+      facts.textContent = primerFacts(r, what);
+      td.append(line, facts);
     });
     return td;
   }
@@ -501,7 +520,7 @@
         if (r.below_threshold === 'True') tr.className = 'low';
         tr.append(
           leadCell(r.amplicon, `pool ${r.pool}`),
-          primerCell(r.forward_seq, r.reverse_seq, `amplicon ${r.amplicon}`),
+          primerCell(r, `amplicon ${r.amplicon}`),
           cell(span(r), 'num pos'),
           cell(r.amplicon_len ? `${fmt(r.amplicon_len)} bp` : '—', 'num len'),
           cell(pct(r.coverage_pct), 'num cov'),
@@ -553,7 +572,7 @@
       if (r.below_threshold === 'True') tr.className = 'low';
       tr.append(
         leadCell(nameOf(r), m === 'check' ? r.note : `rank ${r.rank}`),
-        primerCell(r.forward_seq, r.reverse_seq, nameOf(r)),
+        primerCell(r, nameOf(r)),
         cell(span(r), 'num pos'),
         cell(pct(r.coverage_pct), 'num cov'),
       );
@@ -764,7 +783,7 @@
   state.page = location.hash === '#check' ? 'check' : 'design';
   applyMode();
   $('run').disabled = true;
-  window.ViraEngines.pickEngine().then(async (engine) => {
+  window.VhirEngines.pickEngine().then(async (engine) => {
     state.engine = engine;
     applyLimits(await engine.limits());
     const note = $('privacy');

@@ -1,4 +1,4 @@
-/* viraprime web app. Brand tokens from site/style.css (DESIGN.md); app style: achromatic ledger.
+/* vhirprimerlab web app. Brand tokens from site/style.css (DESIGN.md); app style: achromatic ledger.
    Colour sits on data only: the one data hue marks amplicons that meet the coverage target,
    the miss colour marks those that fall short. Chrome is ink and grey. */
 :root {
@@ -240,7 +240,8 @@ tr.low td.cov { color: var(--miss); font-weight: 500; }
 /* primer cell: forward and reverse on two lines */
 td.primers { display: table-cell; }
 td.primers .seq { display: flex; align-items: center; gap: 8px; }
-td.primers .seq + .seq { margin-top: 4px; }
+td.primers .facts + .seq { margin-top: 6px; }
+td.primers .facts { display: block; margin-left: 20px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .strand { font-size: 12px; color: var(--muted); width: 12px; flex: none; }
 td.lead .sub { display: block; font-size: 12px; color: var(--muted); }
 .results { min-height: 0; }

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.check import load_assays
-from viraprime.models import Assay, PipelineError
+from vhirprimerlab.check import load_assays
+from vhirprimerlab.models import Assay, PipelineError
 
 F = "ACGTACGTACGTACGTAC"
 R = "TTGGCCAATTGGCCAATT"
@@ -98,11 +98,11 @@ from itertools import product
 import primer3
 from Bio.Seq import reverse_complement
 
-from viraprime.check import TM_FOLD_LIMIT, check_assay, locate
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.degenerate import tm_range
-from viraprime.models import Alignment, Consensus, Location, ScoringParams
-from viraprime.scoring import IUPAC, score_pair
+from vhirprimerlab.check import TM_FOLD_LIMIT, check_assay, locate
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.degenerate import fold, tm_range
+from vhirprimerlab.models import Alignment, Consensus, Location, ScoringParams
+from vhirprimerlab.scoring import IUPAC, score_pair
 
 PARAMS = ScoringParams(max_mismatches=2, window=5)
 
@@ -215,7 +215,7 @@ def test_check_assay_high_fold_skips_tm() -> None:
 
 def test_check_assay_wrong_orientation_warns(caplog: pytest.LogCaptureFixture) -> None:
     aln, cons = _family()
-    with caplog.at_level(logging.WARNING, logger="viraprime"):
+    with caplog.at_level(logging.WARNING, logger="vhirprimerlab"):
         check_assay(Assay("P", cons.seq[10:30], cons.seq[80:100]), aln, cons, PARAMS, 95)
     assert any("wrong orientation" in r.getMessage() for r in caplog.records)
 
@@ -233,10 +233,10 @@ def test_check_assay_below_threshold() -> None:
 
 import csv
 
-from viraprime.coords import CoordMap
-from viraprime.io import CHECK_TSV_COLUMNS, write_check_report, write_check_tsv
-from viraprime.models import CheckReport, LengthFilterResult, Record
-from viraprime.ranking import count_reasons
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.io import CHECK_TSV_COLUMNS, write_check_report, write_check_tsv
+from vhirprimerlab.models import CheckReport, LengthFilterResult, Record
+from vhirprimerlab.ranking import count_reasons
 
 
 def _results(aln: Alignment, cons: Consensus) -> list:
@@ -271,6 +271,10 @@ def test_write_check_tsv_columns(tmp_path: Path) -> None:
     assert r_bad["located"] == "False" and r_bad["note"] == NOT_DOWNSTREAM_TEXT
     assert r_bad["amplicon_start"] == r_bad["amplicon_len"] == r_bad["forward_site_mismatches"] == ""
     assert r_bad["not_covered"].startswith("s0(not located)")
+    for r, res in ((r_ok, ok), (r_bad, bad)):
+        for side, seq in (("forward", res.assay.forward), ("reverse", res.assay.reverse)):
+            assert r[f"{side}_degenerate_bases"] == str(sum(b not in "ACGT" for b in seq))
+            assert r[f"{side}_variants"] == str(fold(seq))
 
 
 NOT_DOWNSTREAM_TEXT = "reverse site is not downstream of forward site"
@@ -287,7 +291,7 @@ def test_write_check_tsv_reference_gap(tmp_path: Path) -> None:
 def _report(aln: Alignment, results: list, min_coverage: float = 95.0) -> CheckReport:
     recs = [Record(i, r.replace("-", "")) for i, r in zip(aln.ids, aln.rows)]
     return CheckReport(
-        command="viraprime check ...", params={"min_coverage": 95.0}, n_input=6,
+        command="vhirprimerlab check ...", params={"min_coverage": 95.0}, n_input=6,
         median_len=140.0, min_len=140, max_len=141,
         length=LengthFilterResult(recs, [], 140.0, "drop"), reference_id="s0",
         aln_length=aln.length, cons_length=140, n_conserved=130, mean_conservation=0.99,
@@ -303,7 +307,7 @@ def test_write_check_report_sections(tmp_path: Path) -> None:
     out = tmp_path / "report.txt"
     write_check_report(_report(aln, [low, bad], 100.0), cmap, out)
     text = out.read_text()
-    assert "viraprime check report" in text
+    assert "VHIRPrimerLab check report" in text
     assert "Pair A1" in text and "Pair A2" in text
     assert "Consensus positions: forward 11-30, reverse 81-100" in text
     assert "Why it misses sequences" in text and "fwd 3' mismatch: 1" in text

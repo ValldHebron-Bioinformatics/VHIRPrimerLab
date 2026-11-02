@@ -1,7 +1,7 @@
 // MAFFT compiled to WebAssembly, run synchronously so Python code can call it like a function.
 // It runs the same programs, with the same arguments, as `mafft --auto` on the command line, so
 // the browser gives the same alignment.
-// Classic script: importScripts() in a worker defines self.ViraMafft; require() in Node.
+// Classic script: importScripts() in a worker defines self.VhirMafft; require() in Node.
 (function (root) {
 'use strict';
 
@@ -118,5 +118,5 @@ function makeMafftRunner(programs) {
 
 const api = { MAFFT_VERSION, MAFFT_PROGRAMS, autoMethod, parseFasta, makeMafftRunner };
 if (typeof module === 'object' && module.exports) module.exports = api;
-else root.ViraMafft = api;
+else root.VhirMafft = api;
 })(typeof self !== 'undefined' ? self : globalThis);

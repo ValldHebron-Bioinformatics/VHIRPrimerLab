@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.models import Alignment
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.models import Alignment
 
 ALN = Alignment(["ref", "s2", "s3"], ["AC--GTA", "ACTTGTA", "AC--GAA"])
 
