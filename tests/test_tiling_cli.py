@@ -27,7 +27,11 @@ def tiled(tmp_path_factory):
 def test_tiling_run_outputs(tiled) -> None:
     rc, _, out, _ = tiled
     assert rc == 0
-    assert len(read_tsv(out / "primers.tsv")) == 5
+    assert len(read_tsv(out / "amplicons.tsv")) == 5
+    order = read_tsv(out / "primers.tsv")
+    assert [list(r) for r in order[:1]] == [["name", "sequence"]]
+    assert [r["name"] for r in order[:2]] == ["VHIRPrimerLab_1_LEFT", "VHIRPrimerLab_1_RIGHT"]
+    assert len(order) == 10
     assert len((out / "scheme.bed").read_text().splitlines()) == 10
     assert (out / "report.txt").is_file() and (out / "alignment.fasta").is_file()
 
@@ -38,7 +42,7 @@ def test_progress_file(tiled) -> None:
 
 def test_tiling_agrees_with_check(tiled, tmp_path: Path) -> None:
     _, aln, out, _ = tiled
-    rows = read_tsv(out / "primers.tsv")
+    rows = read_tsv(out / "amplicons.tsv")
     p = tmp_path / "p.tsv"
     p.write_text("".join(f"a{r['amplicon']}\t{r['forward_seq']}\t{r['reverse_seq']}\n" for r in rows))
     main(["check", "--aligned", str(aln), "--primers", str(p), "-o", str(tmp_path / "c")])
@@ -75,7 +79,8 @@ def test_region_mode_still_full_reference(tmp_path: Path) -> None:
     aln = write_fasta(tmp_path / "a.fasta", make_aligned_family())
     out = tmp_path / "o"
     main(["--aligned", str(aln), "-o", str(out), "--amplicon-min", "100", "--amplicon-max", "300"])
-    assert {r["region"] for r in read_tsv(out / "primers.tsv")} == {"full"}
+    assert {r["region"] for r in read_tsv(out / "pairs.tsv")} == {"full"}
+    assert [r["name"] for r in read_tsv(out / "primers.tsv")] == ["full_LEFT", "full_RIGHT"]
 
 
 def test_exit_2_below_threshold(tmp_path: Path) -> None:

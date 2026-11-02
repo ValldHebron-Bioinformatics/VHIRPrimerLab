@@ -11,8 +11,8 @@
   'use strict';
 
   const FILES = {
-    tile: ['primers.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
-    regions: ['primers.tsv', 'report.txt', 'alignment.fasta'],
+    tile: ['primers.tsv', 'amplicons.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
+    regions: ['primers.tsv', 'pairs.tsv', 'report.txt', 'alignment.fasta'],
     check: ['check.tsv', 'report.txt', 'alignment.fasta'],
   };
   const BROWSER_LIMITS = {

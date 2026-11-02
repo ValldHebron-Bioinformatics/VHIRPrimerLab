@@ -24,9 +24,12 @@ from vhirprimerlab.design import run_primer3
 from vhirprimerlab.io import (
     alignment_from_records,
     load_fasta,
+    region_order,
+    tiling_order,
     write_alignment,
     write_check_report,
     write_check_tsv,
+    write_order_tsv,
     write_report,
     write_scheme_bed,
     write_tiling_report,
@@ -357,7 +360,8 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         _design_region(r, included[r.name], cons, aln, a, dparams, sparams) for r in regions
     ]
 
-    write_tsv(results, cmap, a.outdir / "primers.tsv")
+    write_tsv(results, cmap, a.outdir / "pairs.tsv")
+    write_order_tsv(region_order(results), a.outdir / "primers.tsv")
     failed = [res.region.name for res in results if res.rank.below_threshold]
     if failed:
         log.warning("Regions without a pair meeting --min-coverage: %s", ", ".join(failed))
@@ -392,7 +396,8 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
     )
     result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
     progress("writing", 0.95)
-    write_tiling_tsv(result, al.cmap, a.outdir / "primers.tsv")
+    write_tiling_tsv(result, al.cmap, a.outdir / "amplicons.tsv")
+    write_order_tsv(tiling_order(result), a.outdir / "primers.tsv")
     write_scheme_bed(result, al.cmap, a.outdir / "scheme.bed")
     low = [str(x.index) for x in result.amplicons if x.below_threshold]
     if low:

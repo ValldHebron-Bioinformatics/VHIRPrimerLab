@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections import Counter
+from typing import Callable
 
 import primer3
 
@@ -119,12 +120,14 @@ def degenerate_site(
     max_fold: int,
     three_prime: ThreePrime,
     gc_limits: tuple[float, float] | None = None,
+    accept: Callable[[str], bool] | None = None,
 ) -> str:
     """degenerate_pair's greedy rule for a single primer site (forward-strand orientation).
 
     Adding a degenerate base never breaks a match, so only rows not yet matched are
     re-scored. The 3'-terminal base is never changed, and with gc_limits no change may
-    take the GC % outside them; the state matching the most
+    take the GC % outside them. With accept, a change is only made when accept(site)
+    is true (the best change that passes is taken). The state matching the most
     rows (earliest on ties) is returned.
     """
     n = len(site)
@@ -146,7 +149,7 @@ def degenerate_site(
     while unmatched:
         current_burden = burden(current, unmatched)
         n_missing = sum(weight[x] for x in unmatched)
-        best: tuple[tuple[int, int, int, int], str, list[str]] | None = None
+        trials: list[tuple[tuple[int, int, int, int], str, list[str]]] = []
         for i in range(n):
             if i == terminal:
                 continue
@@ -160,10 +163,11 @@ def degenerate_site(
                 gain = n_missing - sum(weight[x] for x in still)
                 removed = current_burden - burden(trial, unmatched)
                 dist = n - 1 - i if three_prime == "right" else i
-                key = (gain, removed, dist, -BASES.index(b))
-                if best is None or key > best[0]:
-                    best = (key, trial, still)
-        if best is None or (best[0][0] <= 0 and best[0][1] <= 0):
+                if gain > 0 or removed > 0:
+                    trials.append(((gain, removed, dist, -BASES.index(b)), trial, still))
+        trials.sort(key=lambda t: t[0], reverse=True)
+        best = next((t for t in trials if accept is None or accept(t[1])), None)
+        if best is None:
             break
         _, current, unmatched = best
         missing = sum(weight[x] for x in unmatched)

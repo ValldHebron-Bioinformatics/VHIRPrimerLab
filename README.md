@@ -36,7 +36,9 @@ This aligns the genomes, then picks 8 overlapping amplicons (~1.2 kb each, at le
 overlap) covering the genome end to end. Odd amplicons go in pool 1 and even ones in pool 2,
 so overlapping products never share a tube. It writes:
 
-- `primers.tsv`: one row per amplicon: pool, primer names (`VHIRPrimerLab_1_LEFT`, …) and
+- `primers.tsv`: the primers to order, one row per oligo with just `name` and `sequence`
+  (`VHIRPrimerLab_1_LEFT`, `VHIRPrimerLab_1_RIGHT`, …), ready for a supplier's bulk upload.
+- `amplicons.tsv`: one row per amplicon with every detail: pool, primer names and
   sequences, and for each primer its length, Tm, GC %, number of degenerate bases and number of
   variants (for degenerate primers also the Tm range over the variants); then reference
   coordinates, overlap with the next amplicon, coverage and the sequences each amplicon misses,
@@ -55,12 +57,17 @@ so overlapping products never share a tube. It writes:
 2. The most conserved primers are kept and checked against every sequence with the matching
    rules below. Degenerate (IUPAC) bases are added where they rescue sequences, up to
    `--max-degeneracy` variants per primer, as long as the primer's GC % (averaged over its
-   variants) stays within `--gc-min`/`--gc-max`.
+   variants) stays within `--gc-min`/`--gc-max` and no variant forms a hairpin, a self-dimer
+   (also between two variants of the mix) or a G/C-heavy 3′ end.
 3. A dynamic-programming search picks exactly N amplicons: it maximises the worst amplicon's
    coverage, then the total coverage, then how close the tiling reaches both genome ends, then
    primer quality. Amplicon lengths may vary ±20 % around the target; if no tiling fits, the
    tool retries at ±35 % and ±50 % and says so.
-4. Primers in the same pool are checked for primer-dimers (reported, not blocking).
+4. Primers in the same pool are checked for primer-dimers (ΔG below −9 kcal/mol between any
+   variant of one primer and any variant of the other). A primer in a dimer is swapped for
+   another when the tiling can be chosen again without it and the weakest amplicon keeps
+   at least as many sequences; dimers that cannot be removed this way are listed in
+   `report.txt`.
 
 ### Tiling options
 
@@ -266,7 +273,9 @@ Regions are designed independently and may overlap.
 ### Region design outputs
 
 - `alignment.fasta` — the alignment used (after outlier removal).
-- `primers.tsv` — one row per reported pair: `region, rank, forward_seq, reverse_seq, forward_tm,
+- `primers.tsv` — the primers to order: the best (rank 1) pair of each region as `name` and
+  `sequence` rows (`<region>_LEFT`, `<region>_RIGHT`).
+- `pairs.tsv` — one row per reported pair: `region, rank, forward_seq, reverse_seq, forward_tm,
   reverse_tm, forward_gc, reverse_gc, forward_len, reverse_len, amplicon_start, amplicon_end,
   amplicon_len, coverage_pct, n_covered, n_total, degenerate, forward_tm_range, reverse_tm_range,
   penalty, below_threshold, not_covered`. Amplicon coordinates are on the reference; `rank`

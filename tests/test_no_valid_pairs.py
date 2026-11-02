@@ -20,7 +20,7 @@ def test_hypervariable_region_exit_2(family: Path, tmp_path: Path) -> None:
     out = tmp_path / "o"
     rc = main(["-i", str(family), "-o", str(out), "--region", "hv:701-1100", *AMP])
     assert rc == 2
-    rows = read_tsv(out / "primers.tsv")
+    rows = read_tsv(out / "pairs.tsv")
     assert rows, "best available pairs must still be reported"
     assert all(r["below_threshold"] == "True" for r in rows)
     assert all(r["region"] == "hv" for r in rows)
@@ -37,8 +37,9 @@ def test_zero_candidates_region_explained(tmp_path: Path) -> None:
     rc = main(["-i", str(fa), "-o", str(out), "--region", "polyA:1-400", "--region", "ok:401-600",
                *AMP])
     assert rc == 2
-    rows = read_tsv(out / "primers.tsv")
+    rows = read_tsv(out / "pairs.tsv")
     assert rows and {r["region"] for r in rows} == {"ok"}
+    assert [r["name"] for r in read_tsv(out / "primers.tsv")] == ["ok_LEFT", "ok_RIGHT"]
     report = (out / "report.txt").read_text()
     section = report.split("Region polyA")[1].split("Region ok")[0]
     assert "no candidate" in section and "considered" in section
