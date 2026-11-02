@@ -101,6 +101,31 @@ def write_alignment(aln: Alignment, path: Path) -> None:
     Path(path).write_text("".join(f">{i}\n{row}\n" for i, row in zip(aln.ids, aln.rows)))
 
 
+ORDER_TSV_COLUMNS = ["name", "sequence"]
+
+
+def write_order_tsv(oligos: list[tuple[str, str]], path: Path) -> None:
+    """The primers to buy: one row per oligo, name and sequence (5'->3', IUPAC allowed).
+
+    Only what a supplier's bulk order needs; every other detail goes in the full
+    tables (amplicons.tsv, pairs.tsv) and report.txt.
+    """
+    with Path(path).open("w", newline="") as fh:
+        writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
+        writer.writerow(ORDER_TSV_COLUMNS)
+        writer.writerows(oligos)
+
+
+def region_order(results: list[RegionResult]) -> list[tuple[str, str]]:
+    """The best (rank 1) pair of every region that has one."""
+    out: list[tuple[str, str]] = []
+    for res in results:
+        if res.rank.pairs:
+            best = res.rank.pairs[0]
+            out += [(f"{res.region.name}_LEFT", best.fwd_seq), (f"{res.region.name}_RIGHT", best.rev_seq)]
+    return out
+
+
 TSV_COLUMNS = [
     "region", "rank", "forward_seq", "reverse_seq", "forward_tm", "reverse_tm", "forward_gc",
     "reverse_gc", "forward_len", "reverse_len", "amplicon_start", "amplicon_end", "amplicon_len",
@@ -334,6 +359,15 @@ def _span(first_col: int, last_col: int, cmap: CoordMap) -> tuple[int, int] | No
     except PipelineError:
         return None
     return (start, end) if start <= end else None
+
+
+def tiling_order(result: TilingResult) -> list[tuple[str, str]]:
+    """Both primers of every amplicon, in genome order."""
+    out: list[tuple[str, str]] = []
+    for a in result.amplicons:
+        left, right = _names(a.index)
+        out += [(left, a.fwd.seq), (right, a.rev.seq)]
+    return out
 
 
 def write_tiling_tsv(result: TilingResult, cmap: CoordMap, path: Path) -> None:

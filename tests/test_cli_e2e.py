@@ -32,9 +32,9 @@ def read_tsv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
 def test_single_region_end_to_end(family: Path, tmp_path: Path) -> None:
     out = tmp_path / "o"
     assert main(["-i", str(family), "-o", str(out), "--region", "100-500", *AMP]) == 0
-    for name in ("alignment.fasta", "primers.tsv", "report.txt"):
+    for name in ("alignment.fasta", "primers.tsv", "pairs.tsv", "report.txt"):
         assert (out / name).is_file()
-    header, rows = read_tsv(out / "primers.tsv")
+    header, rows = read_tsv(out / "pairs.tsv")
     assert header == COLUMNS
     assert 1 <= len(rows) <= 5
     first = rows[0]
@@ -43,6 +43,9 @@ def test_single_region_end_to_end(family: Path, tmp_path: Path) -> None:
     start, end = int(first["amplicon_start"]), int(first["amplicon_end"])
     assert 100 <= start < end <= 500
     assert int(first["amplicon_len"]) == end - start + 1
+    order = (out / "primers.tsv").read_text().splitlines()
+    assert order == ["name\tsequence", f"region1_LEFT\t{first['forward_seq']}",
+                     f"region1_RIGHT\t{first['reverse_seq']}"]
     assert 100 <= int(first["amplicon_len"]) <= 300
     report = (out / "report.txt").read_text()
     assert f"Forward: {first['forward_seq']}  {first['forward_len']} nt, Tm {first['forward_tm']} °C" in report
@@ -53,7 +56,7 @@ def test_two_regions(family: Path, tmp_path: Path) -> None:
     out = tmp_path / "o"
     rc = main(["-i", str(family), "-o", str(out), "--region", "A:61-300", "--region", "B:301-540", *AMP])
     assert rc == 0
-    _, rows = read_tsv(out / "primers.tsv")
+    _, rows = read_tsv(out / "pairs.tsv")
     assert {r["region"] for r in rows} == {"A", "B"}
     for name in ("A", "B"):
         assert [r["rank"] for r in rows if r["region"] == name][0] == "1"
@@ -66,7 +69,7 @@ def test_regions_file(family: Path, tmp_path: Path) -> None:
     rf.write_text("name\tstart\tend\nA\t61\t300\n")
     out = tmp_path / "o"
     assert main(["-i", str(family), "-o", str(out), "--regions-file", str(rf), *AMP]) == 0
-    _, rows = read_tsv(out / "primers.tsv")
+    _, rows = read_tsv(out / "pairs.tsv")
     assert {r["region"] for r in rows} == {"A"}
 
 
@@ -94,7 +97,8 @@ def test_aligned_input_skips_aligner(family: Path, tmp_path: Path, monkeypatch: 
     out2 = tmp_path / "o2"
     rc = main(["--aligned", str(out1 / "alignment.fasta"), "-o", str(out2), "--region", "100-500", *AMP])
     assert rc == 0
-    assert (out1 / "primers.tsv").read_text() == (out2 / "primers.tsv").read_text()
+    for name in ("primers.tsv", "pairs.tsv"):
+        assert (out1 / name).read_text() == (out2 / name).read_text()
 
 
 def test_degenerate_rescues_snp(tmp_path: Path) -> None:
@@ -114,6 +118,6 @@ def test_degenerate_rescues_snp(tmp_path: Path) -> None:
     assert main([*common, "-o", str(tmp_path / "o1")]) == 2
     out2 = tmp_path / "o2"
     assert main([*common, "-o", str(out2), "--allow-degenerate"]) == 0
-    _, rows = read_tsv(out2 / "primers.tsv")
+    _, rows = read_tsv(out2 / "pairs.tsv")
     assert rows[0]["degenerate"] == "True" and rows[0]["coverage_pct"] == "100.0"
     assert rows[0]["forward_tm_range"] or rows[0]["reverse_tm_range"]

@@ -24,7 +24,7 @@ def aln(tmp_path: Path) -> Path:
 
 
 def _rank1(design_out: Path) -> dict[str, dict[str, str]]:
-    return {r["region"]: r for r in read_tsv(design_out / "primers.tsv") if r["rank"] == "1"}
+    return {r["region"]: r for r in read_tsv(design_out / "pairs.tsv") if r["rank"] == "1"}
 
 
 def _primer_file(path: Path, rows: dict[str, dict[str, str]], names: list[str]) -> Path:

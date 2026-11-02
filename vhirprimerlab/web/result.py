@@ -5,7 +5,10 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-OUTPUT_FILES = ("primers.tsv", "scheme.bed", "check.tsv", "report.txt", "alignment.fasta")
+OUTPUT_FILES = (
+    "primers.tsv", "amplicons.tsv", "pairs.tsv", "scheme.bed", "check.tsv", "report.txt",
+    "alignment.fasta",
+)
 
 
 def read_rows(path: Path) -> list[dict[str, str]]:
@@ -37,13 +40,14 @@ def build_result(job_dir: Path, argv: list[str], code: int) -> dict:
     log = job_dir / "log.txt"
     lines = log.read_text().splitlines() if log.is_file() else []
     out = job_dir / "out"
-    table = out / ("check.tsv" if argv[:1] == ["check"] else "primers.tsv")
+    mode = "check" if argv[:1] == ["check"] else "tile" if "-n" in argv else "regions"
+    table = out / {"check": "check.tsv", "tile": "amplicons.tsv", "regions": "pairs.tsv"}[mode]
     errors = [ln[len("ERROR: "):] for ln in lines if ln.startswith("ERROR: ")]
     usage = [ln.split("error: ", 1)[1] for ln in lines if "error: " in ln and ln.startswith("vhirprimerlab")]
     ref, ref_len = reference(out)
     return {
         "exit_code": code,
-        "mode": "check" if argv[:1] == ["check"] else "tile" if "-n" in argv else "regions",
+        "mode": mode,
         "rows": read_rows(table) if table.is_file() and code != 1 else [],
         "reference_id": ref,
         "reference_length": ref_len,

@@ -59,9 +59,9 @@ def test_tile_job_end_to_end(client: TestClient) -> None:
     assert res["mode"] == "tile" and len(res["rows"]) == 4
     assert res["reference_id"] == "g01" and res["reference_length"] == 6000
     tsv = client.get(f"/api/jobs/{job}/files/primers.tsv")
-    assert tsv.status_code == 200 and tsv.text.startswith("amplicon\tpool")
+    assert tsv.status_code == 200 and tsv.text.startswith("name\tsequence\nVHIRPrimerLab_1_LEFT\t")
     z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/jobs/{job}/zip").content))
-    assert {"primers.tsv", "scheme.bed", "report.txt", "alignment.fasta"} <= set(z.namelist())
+    assert {"primers.tsv", "amplicons.tsv", "scheme.bed", "report.txt", "alignment.fasta"} <= set(z.namelist())
 
 
 @needs_mafft

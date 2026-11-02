@@ -212,7 +212,7 @@
 
   /* ---------- Outputs: the files a run writes ---------- */
   const notes = {
-    tsv: 'One row per reported pair: both sequences, Tm, GC, amplicon coordinates on your reference, coverage, and which strains it misses and why.',
+    tsv: 'One row per reported pair: both sequences, Tm, GC, amplicon coordinates on your reference, coverage, and which strains it misses and why. primers.tsv holds just the names and sequences, ready to order.',
     report: 'Parameters, input and alignment statistics, one section per region and, when a region falls short, a count of why its best pair misses.',
     fasta: 'The alignment that was actually used, after outliers were dropped, so you can open it in any viewer and check the primer sites yourself.',
     exit: '0 when every region has a passing pair, 2 when one falls short but every file is written, 1 on bad input. Easy to branch on in a pipeline.',
@@ -220,7 +220,7 @@
   function sheetHtml(k) {
     if (k === 'tsv') {
       const cols = ['region', 'rank', 'forward_seq', 'reverse_seq', 'amplicon_len', 'coverage_pct', 'degenerate', 'below_threshold'];
-      return `<div class="sheet-head"><span>primers.tsv</span><span>10 rows · 22 columns</span></div>
+      return `<div class="sheet-head"><span>pairs.tsv</span><span>10 rows · 22 columns</span></div>
         <table class="tsv"><thead><tr>${cols.map((c) => `<th><code translate="no">${c}</code></th>`).join('')}</tr></thead><tbody>
         ${VP.tsv.map((r) => `<tr${r.below_threshold === 'True' ? ' class="below"' : ''}>${cols.map((c) => `<td><code translate="no">${esc(r[c])}</code></td>`).join('')}</tr>`).join('')}
         </tbody></table>`;

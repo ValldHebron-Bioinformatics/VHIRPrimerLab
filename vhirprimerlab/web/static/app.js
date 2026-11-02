@@ -15,8 +15,8 @@
     done: 'Finishing…',
   };
   const FILES = {
-    tile: ['primers.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
-    regions: ['primers.tsv', 'report.txt', 'alignment.fasta'],
+    tile: ['primers.tsv', 'amplicons.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
+    regions: ['primers.tsv', 'pairs.tsv', 'report.txt', 'alignment.fasta'],
     check: ['check.tsv', 'report.txt', 'alignment.fasta'],
   };
 
@@ -277,8 +277,8 @@
   }
 
   const OUTCOME = {
-    tile: 'When it finishes you get both primers of every amplicon, how many of your sequences each amplicon covers and why it misses any, and the files primers.tsv, scheme.bed (ARTIC primer scheme) and report.txt.',
-    regions: 'When it finishes you get the best primer pairs in each region, ranked by how many of your sequences they amplify, with primers.tsv and report.txt.',
+    tile: 'When it finishes you get both primers of every amplicon, how many of your sequences each amplicon covers and why it misses any, and the files primers.tsv (names and sequences, ready to order), amplicons.tsv (every detail), scheme.bed (ARTIC primer scheme) and report.txt.',
+    regions: 'When it finishes you get the best primer pairs in each region, ranked by how many of your sequences they amplify, with primers.tsv (the best pair of each region, ready to order), pairs.tsv (every pair with its details) and report.txt.',
     check: 'Add your sequences and paste your primer pairs. Each pair is placed on the alignment and scored on every sequence, with the reason for each miss.',
   };
 
