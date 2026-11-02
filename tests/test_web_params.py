@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.web.params import Limits, build_argv, validate_upload
+from vhirprimerlab.web.params import Limits, build_argv, validate_upload
 
 
 def test_tile_argv() -> None:
@@ -57,8 +57,8 @@ def test_validate_upload(tmp_path: Path) -> None:
 
 
 def test_limits_from_env(monkeypatch) -> None:
-    monkeypatch.setenv("VIRAPRIME_MAX_SEQS", "50")
-    monkeypatch.setenv("VIRAPRIME_TIMEOUT_S", "30")
+    monkeypatch.setenv("VHIRPRIMERLAB_MAX_SEQS", "50")
+    monkeypatch.setenv("VHIRPRIMERLAB_TIMEOUT_S", "30")
     limits = Limits.from_env()
     assert limits.max_seqs == 50 and limits.timeout_s == 30.0 and limits.workers == 2
 

@@ -13,7 +13,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const ENGINE = path.join(ROOT, "site/app/engine");
 const require = createRequire(import.meta.url);
 const { MAFFT_PROGRAMS, MAFFT_VERSION, autoMethod, makeMafftRunner, parseFasta } =
-  require(path.join(ROOT, "viraprime/web/static/mafft-runner.js"));
+  require(path.join(ROOT, "vhirprimerlab/web/static/mafft-runner.js"));
 
 function loadPrograms() {
   const programs = {};
@@ -102,7 +102,7 @@ for (const [label, nseq, length] of [
     { skip: !sameVersion && `needs mafft v${MAFFT_VERSION} on the PATH (found ${cli ? cli.version : "none"})` },
     () => {
       const fasta = synthGenomes(nseq, length, 7);
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "viraprime-mafft-"));
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vhirprimerlab-mafft-"));
       fs.writeFileSync(path.join(dir, "in.fa"), fasta);
       const native = spawnSync(cli.bin, ["--auto", "--quiet", path.join(dir, "in.fa")], { encoding: "utf8", maxBuffer: 1 << 28 });
       assert.equal(native.status, 0, native.stderr);

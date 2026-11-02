@@ -1,5 +1,5 @@
 // The browser engine, end to end, in Node (same Pyodide and WebAssembly as browsers).
-//   cd tests/browser && npm install && PYTHON=<python with viraprime> node --test
+//   cd tests/browser && npm install && PYTHON=<python with vhirprimerlab> node --test
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -14,7 +14,7 @@ const ROOT = path.resolve(HERE, "../..");
 const PYTHON = process.env.PYTHON || "python3";
 const require = createRequire(import.meta.url);
 
-const site = fs.mkdtempSync(path.join(os.tmpdir(), "viraprime-site-"));
+const site = fs.mkdtempSync(path.join(os.tmpdir(), "vhirprimerlab-site-"));
 const built = spawnSync(PYTHON, [path.join(ROOT, "tools/build_site.py"), path.join(site, "_site")], { encoding: "utf8" });
 assert.equal(built.status, 0, built.stderr);
 const APP = path.join(site, "_site", "app");
@@ -47,9 +47,9 @@ test("tiles the example genomes like the command line", () => {
   assert.equal(String.fromCharCode(zip[0], zip[1]), "PK");
 
   // the command line on the alignment the browser produced gives the same primers
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "viraprime-native-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vhirprimerlab-native-"));
   fs.writeFileSync(path.join(dir, "aln.fasta"), files["alignment.fasta"]);
-  const native = spawnSync(PYTHON, ["-m", "viraprime", "--aligned", path.join(dir, "aln.fasta"), "-n", "8",
+  const native = spawnSync(PYTHON, ["-m", "vhirprimerlab", "--aligned", path.join(dir, "aln.fasta"), "-n", "8",
     "-o", path.join(dir, "out")], { encoding: "utf8", cwd: ROOT });
   assert.equal(native.status, 0, native.stderr);
   assert.equal(files["primers.tsv"], fs.readFileSync(path.join(dir, "out/primers.tsv"), "utf8"));

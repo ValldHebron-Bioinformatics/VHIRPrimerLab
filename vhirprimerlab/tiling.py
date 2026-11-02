@@ -9,9 +9,9 @@ from typing import Callable
 
 import primer3
 
-from viraprime.candidates import enumerate_primers, pick_conserved, score_primers
-from viraprime.coords import CoordMap
-from viraprime.models import (
+from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.models import (
     Alignment,
     Amplicon,
     ColumnStats,
@@ -22,9 +22,9 @@ from viraprime.models import (
     TilingParams,
     TilingResult,
 )
-from viraprime.scoring import score_pair
+from vhirprimerlab.scoring import score_pair
 
-log = logging.getLogger("viraprime")
+log = logging.getLogger("vhirprimerlab")
 
 Progress = Callable[[str, float], None]
 Path_ = list[tuple[PrimerCandidate, PrimerCandidate]]
@@ -180,7 +180,7 @@ def choose(
 
 
 def _primer_names(index: int) -> tuple[str, str]:
-    return f"viraprime_{index}_LEFT", f"viraprime_{index}_RIGHT"
+    return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
 
 
 def _dimers(amplicons: list[Amplicon]) -> list[str]:

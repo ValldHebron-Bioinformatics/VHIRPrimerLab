@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.models import PipelineError, Region
-from viraprime.regions import load_regions_file, parse_region_spec, resolve_regions
+from vhirprimerlab.models import PipelineError, Region
+from vhirprimerlab.regions import load_regions_file, parse_region_spec, resolve_regions
 
 
 def test_plain_spec() -> None:

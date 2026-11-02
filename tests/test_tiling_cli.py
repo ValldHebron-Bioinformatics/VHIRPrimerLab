@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.synthetic import make_aligned_family, make_genome_family, write_fasta
-from viraprime.cli import main
+from vhirprimerlab.cli import main
 
 
 def read_tsv(path: Path) -> list[dict[str, str]]:

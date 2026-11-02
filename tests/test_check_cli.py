@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from viraprime.cli import main
-from viraprime.io import CHECK_TSV_COLUMNS
+from vhirprimerlab.cli import main
+from vhirprimerlab.io import CHECK_TSV_COLUMNS
 from tests.synthetic import make_aligned_family, make_family, write_fasta
 
 DESIGN = ["--region", "cons:61-540", "--region", "hv:701-1100",
@@ -102,4 +102,4 @@ def test_design_help_mentions_check(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--help"])
     assert exc.value.code == 0
-    assert "viraprime check --help" in capsys.readouterr().out
+    assert "vhirprimerlab check --help" in capsys.readouterr().out

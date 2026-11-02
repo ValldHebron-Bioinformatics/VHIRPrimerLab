@@ -1,4 +1,4 @@
-/* viraprime web app: read sequences in the browser, start a job, follow it, draw the result. */
+/* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -41,7 +41,7 @@
       ? 'Paste primer pairs you already have and see how many of your sequences each pair amplifies, with the same matching rules as design.'
       : 'Drop your genomes, choose how many amplicons you want, and get overlapping primer pairs in two pools, checked against every sequence.';
     $('run').textContent = check ? 'Check primers' : 'Design primers';
-    document.title = `viraprime: ${check ? 'check primers' : 'tile a genome with primers'}`;
+    document.title = `VHIRPrimerLab: ${check ? 'check primers' : 'tile a genome with primers'}`;
     if (!state.job) showIdle();
   }
 
@@ -783,7 +783,7 @@
   state.page = location.hash === '#check' ? 'check' : 'design';
   applyMode();
   $('run').disabled = true;
-  window.ViraEngines.pickEngine().then(async (engine) => {
+  window.VhirEngines.pickEngine().then(async (engine) => {
     state.engine = engine;
     applyLimits(await engine.limits());
     const note = $('privacy');

@@ -20,9 +20,9 @@ def test_build_site(tmp_path: Path) -> None:
     engine = app / "engine"
     manifest = json.loads((engine / "manifest.json").read_text())
     assert manifest["pyodide"] == "0.27.7"
-    for key in ("viraprime", "primer3"):
+    for key in ("vhirprimerlab", "primer3"):
         assert (engine / manifest[key]).is_file(), key
-    assert manifest["viraprime"].startswith("viraprime-") and manifest["viraprime"].endswith(".whl")
+    assert manifest["vhirprimerlab"].startswith("vhirprimerlab-") and manifest["vhirprimerlab"].endswith(".whl")
     for name in ("disttbfast", "tbfast", "dndpre", "dvtditr"):    # what `mafft --auto` runs
         assert (engine / f"mafft-{name}.js").is_file() and (engine / f"mafft-{name}.wasm").is_file(), name
 
@@ -30,12 +30,12 @@ def test_build_site(tmp_path: Path) -> None:
 def test_build_site_replaces_an_old_build(tmp_path: Path) -> None:
     out = tmp_path / "_site"
     (out / "app" / "engine").mkdir(parents=True)
-    (out / "app" / "engine" / "viraprime-0.0.1-py3-none-any.whl").write_text("old")
+    (out / "app" / "engine" / "vhirprimerlab-0.0.1-py3-none-any.whl").write_text("old")
     (out / "app" / "engine" / "manifest.json").write_text("{}")  # marks a previous build
     subprocess.run([sys.executable, str(ROOT / "tools" / "build_site.py"), str(out)],
                    check=True, capture_output=True)
-    wheels = sorted(p.name for p in (out / "app" / "engine").glob("viraprime-*.whl"))
-    assert wheels == [json.loads((out / "app" / "engine" / "manifest.json").read_text())["viraprime"]]
+    wheels = sorted(p.name for p in (out / "app" / "engine").glob("vhirprimerlab-*.whl"))
+    assert wheels == [json.loads((out / "app" / "engine" / "manifest.json").read_text())["vhirprimerlab"]]
 
 
 def test_build_site_refuses_to_replace_a_folder_that_is_not_a_build(tmp_path: Path) -> None:

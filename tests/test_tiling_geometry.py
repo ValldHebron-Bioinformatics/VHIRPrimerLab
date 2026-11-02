@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tests.synthetic import make_genome_family
-from viraprime.tiling import geometry, max_amplicons, target_length
+from vhirprimerlab.tiling import geometry, max_amplicons, target_length
 
 
 def test_make_genome_family_shape() -> None:

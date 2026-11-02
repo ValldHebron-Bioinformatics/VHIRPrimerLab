@@ -6,12 +6,12 @@ import pytest
 from Bio.Seq import reverse_complement
 
 from tests.synthetic import make_genome_family
-from viraprime.candidates import enumerate_primers, pick_conserved, score_primers
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.degenerate import degenerate_site, fold
-from viraprime.io import alignment_from_records
-from viraprime.models import Record, ScoringParams, TilingParams
-from viraprime.scoring import match_primer
+from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.degenerate import degenerate_site, fold
+from vhirprimerlab.io import alignment_from_records
+from vhirprimerlab.models import Record, ScoringParams, TilingParams
+from vhirprimerlab.scoring import match_primer
 
 PARAMS = TilingParams(
     n_amplicons=5, overlap=50, tm_min=57, tm_opt=60, tm_max=63, max_tm_diff=2,

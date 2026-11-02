@@ -1,4 +1,4 @@
-/* viraprime landing page behaviour. Data comes from data.js (a real run of the README example). */
+/* VHIRPrimerLab landing page behaviour. Data comes from data.js (a real run of the README example). */
 (() => {
   'use strict';
   const VP = window.VP;
@@ -25,7 +25,7 @@
     $$('[data-reveal]').forEach((el) => el.classList.add('in'));
   }
 
-  /* ---------- Hero: live coverage check (same rules as viraprime/scoring.py) ---------- */
+  /* ---------- Hero: live coverage check (same rules as vhirprimerlab/scoring.py) ---------- */
   const IUPAC = { A: 'A', C: 'C', G: 'G', T: 'T', R: 'AG', Y: 'CT', S: 'CG', W: 'AT', K: 'GT', M: 'AC', B: 'CGT', D: 'AGT', H: 'ACT', V: 'ACG', N: 'ACGT' };
 
   function match(site, seq, three, maxMm, window) {
@@ -253,7 +253,7 @@ Regions without a pair meeting --min-coverage (95%): hv</pre>`;
     if (k === 'fasta') {
       return `<div class="sheet-head"><span>alignment.fasta</span><span>10 records · 1,202 columns</span></div><pre>${VP.fasta.map(([id, s]) => `&gt;${esc(id)}\n${esc(s)}…`).join('\n')}</pre>`;
     }
-    return `<div class="sheet-head"><span>Terminal</span><span>bash</span></div><pre><span class="k">$</span> viraprime -i examples/family.fasta -o out \\
+    return `<div class="sheet-head"><span>Terminal</span><span>bash</span></div><pre><span class="k">$</span> vhirprimerlab -i examples/family.fasta -o out \\
     --region cons:61-540 --region hv:701-1100 \\
     --amplicon-min 100 --amplicon-max 300 --allow-degenerate
 <span class="d">INFO: Loaded 10 sequences from examples/family.fasta
@@ -351,14 +351,14 @@ WARNING: Regions without a pair meeting --min-coverage: hv</span>
         const n = parseInt(f.n.value, 10);
         [f.primers, f.regions, f.amin, f.amax].forEach((el) => mark(el, false));
         mark(f.n, !(n > 0)); if (!(n > 0)) problems.push('The number of amplicons must be 1 or more.');
-        parts = ['viraprime', '-i', quote(input || 'genomes.fasta'), '-n', String(n > 0 ? n : 10), '-o', quote(out)];
+        parts = ['vhirprimerlab', '-i', quote(input || 'genomes.fasta'), '-n', String(n > 0 ? n : 10), '-o', quote(out)];
         if (aligner !== 'mafft') parts.push('--aligner', aligner);
         if (!f.deg.checked) parts.push('--no-degenerate');
       } else if (mode === 'check') {
         const primers = f.primers.value.trim();
         mark(f.primers, !primers); if (!primers) problems.push('Name the primers file.');
         [f.regions, f.amin, f.amax, f.n].forEach((el) => mark(el, false));
-        parts = ['viraprime', 'check', '-i', quote(input || 'family.fasta'), '--primers', quote(primers || 'assays.tsv'), '-o', quote(out)];
+        parts = ['vhirprimerlab', 'check', '-i', quote(input || 'family.fasta'), '--primers', quote(primers || 'assays.tsv'), '-o', quote(out)];
         if (aligner !== 'mafft') parts.push('--aligner', aligner);
       } else {
         const regions = f.regions.value.trim().split(/\s+/).filter(Boolean);
@@ -368,7 +368,7 @@ WARNING: Regions without a pair meeting --min-coverage: hv</span>
         mark(f.regions, badReg.length > 0); if (badReg.length) problems.push(`Region “${badReg[0]}” should look like cons:61-540.`);
         const badAmp = !(amin > 0) || !(amax > 0) || amin > amax;
         mark(f.amin, badAmp); mark(f.amax, badAmp); if (badAmp) problems.push('Amplicon min and max must be positive, with min ≤ max.');
-        parts = ['viraprime', '-i', quote(input || 'family.fasta'), '-o', quote(out)];
+        parts = ['vhirprimerlab', '-i', quote(input || 'family.fasta'), '-o', quote(out)];
         if (aligner !== 'mafft') parts.push('--aligner', aligner);
         regions.filter((r) => regionRe.test(r)).forEach((r) => parts.push('--region', r));
         parts.push('--amplicon-min', String(amin || 100), '--amplicon-max', String(amax || 300));

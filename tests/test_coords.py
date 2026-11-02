@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from viraprime.conservation import build_consensus, score_columns
-from viraprime.coords import CoordMap
-from viraprime.models import Alignment, PipelineError, Region
+from vhirprimerlab.conservation import build_consensus, score_columns
+from vhirprimerlab.coords import CoordMap
+from vhirprimerlab.models import Alignment, PipelineError, Region
 
 
 def _cmap(aln: Alignment, ref: str = "ref") -> CoordMap:

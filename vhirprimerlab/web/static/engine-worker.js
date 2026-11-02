@@ -1,4 +1,4 @@
-// viraprime's browser engine: runs the viraprime command line inside Pyodide, with primer3 and
+// vhirprimerlab's browser engine: runs the vhirprimerlab command line inside Pyodide, with primer3 and
 // MAFFT compiled to WebAssembly. Loaded as a classic Web Worker by the page, or with require()
 // in Node for tests (createEngineCore).
 (function (root) {
@@ -7,20 +7,20 @@
   const PYODIDE_VERSION = '0.27.7';
   const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
 
-  // Python side: MAFFT as viraprime's "mafft" aligner, progress to the page, and one call that
-  // checks a request exactly like the server (prepare_job), runs viraprime and builds the result.
+  // Python side: MAFFT as vhirprimerlab's "mafft" aligner, progress to the page, and one call that
+  // checks a request exactly like the server (prepare_job), runs vhirprimerlab and builds the result.
   const SHIM = `
 import contextlib, io, json, os, re, shutil, sys, traceback, zipfile
 from pathlib import Path
 
-import viraprime_js
-from viraprime.align import register_aligner
-from viraprime.cli import main, set_progress_reporter
-from viraprime.io import alignment_from_records, load_fasta
-from viraprime.models import PipelineError
-from viraprime.web.params import Limits
-from viraprime.web.prepare import prepare_job
-from viraprime.web.result import OUTPUT_FILES, build_result
+import vhirprimerlab_js
+from vhirprimerlab.align import register_aligner
+from vhirprimerlab.cli import main, set_progress_reporter
+from vhirprimerlab.io import alignment_from_records, load_fasta
+from vhirprimerlab.models import PipelineError
+from vhirprimerlab.web.params import Limits
+from vhirprimerlab.web.prepare import prepare_job
+from vhirprimerlab.web.result import OUTPUT_FILES, build_result
 
 LIMITS = Limits()
 OOM = "Your browser ran out of memory. Try fewer sequences or the command line."
@@ -30,7 +30,7 @@ def _mafft(records):
     # the same programs and arguments as \`mafft --auto\` on the command line (mafft-runner.js)
     text = "".join(f">{r.id}\\n{r.seq}\\n" for r in records)
     try:
-        aligned = viraprime_js.run_mafft(text)
+        aligned = vhirprimerlab_js.run_mafft(text)
     except Exception as exc:  # a JavaScript error from the MAFFT module
         message = str(exc)
         if re.search(r"memory|alloc|out of bounds", message, re.IGNORECASE):
@@ -42,7 +42,7 @@ def _mafft(records):
 
 
 register_aligner("mafft", _mafft)
-set_progress_reporter(lambda stage, fraction: viraprime_js.progress(stage, fraction))
+set_progress_reporter(lambda stage, fraction: vhirprimerlab_js.progress(stage, fraction))
 
 
 def run_job(mode, settings_json, fasta, primers):
@@ -91,9 +91,9 @@ def run_job(mode, settings_json, fasta, primers):
     const py = await loadPyodide();
     say('Loading Biopython', 0.3);
     await py.loadPackage(['biopython', 'micropip'], { messageCallback: () => {} });
-    say('Loading primer3 and viraprime', 0.6);
+    say('Loading primer3 and VHIRPrimerLab', 0.6);
     const micropip = py.pyimport('micropip');
-    for (const name of [manifest.primer3, manifest.viraprime]) {
+    for (const name of [manifest.primer3, manifest.vhirprimerlab]) {
       py.FS.writeFile(`/tmp/${name}`, await fetchBytes(`engine/${name}`));
       await micropip.install.callKwargs(`emfs:/tmp/${name}`, { deps: false });
     }
@@ -105,7 +105,7 @@ def run_job(mode, settings_json, fasta, primers):
     }
     const runMafft = mafft.makeMafftRunner(programs);
     let progress = () => {};
-    py.registerJsModule('viraprime_js', {
+    py.registerJsModule('vhirprimerlab_js', {
       run_mafft: (text) => runMafft(text),
       progress: (stage, fraction) => progress(stage, fraction),
     });
@@ -154,7 +154,7 @@ def run_job(mode, settings_json, fasta, primers):
       core = (async () => {
         root.importScripts(`${PYODIDE_URL}pyodide.js`, 'mafft-runner.js');
         const mafftFactories = {};
-        for (const name of root.ViraMafft.MAFFT_PROGRAMS) {
+        for (const name of root.VhirMafft.MAFFT_PROGRAMS) {
           root.importScripts(`engine/mafft-${name}.js`); // defines createMafft_<name>
           mafftFactories[name] = root[`createMafft_${name}`];
         }
@@ -166,7 +166,7 @@ def run_job(mode, settings_json, fasta, primers):
             return new Uint8Array(await r.arrayBuffer());
           },
           mafftFactories,
-          mafft: root.ViraMafft,
+          mafft: root.VhirMafft,
           report: (stage, fraction) => post({ type: 'loading', stage, progress: fraction }),
         });
       })();

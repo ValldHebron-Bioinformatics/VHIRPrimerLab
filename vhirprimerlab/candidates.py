@@ -9,9 +9,9 @@ from typing import Callable
 import primer3
 from Bio.Seq import reverse_complement
 
-from viraprime.degenerate import degenerate_site, gc_percent, tm_range
-from viraprime.models import Alignment, ColumnStats, Consensus, PrimerCandidate, TilingParams
-from viraprime.scoring import match_primer
+from vhirprimerlab.degenerate import degenerate_site, gc_percent, tm_range
+from vhirprimerlab.models import Alignment, ColumnStats, Consensus, PrimerCandidate, TilingParams
+from vhirprimerlab.scoring import match_primer
 
 Progress = Callable[[str, float], None]
 

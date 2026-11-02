@@ -5,8 +5,8 @@ import os
 import time
 from pathlib import Path
 
-from viraprime.web.jobs import JobManager
-from viraprime.web.params import Limits
+from vhirprimerlab.web.jobs import JobManager
+from vhirprimerlab.web.params import Limits
 
 
 def fake_job(job_dir: Path, argv: list[str]) -> None:
@@ -125,7 +125,7 @@ def test_timeout_kills_the_aligner_too(tmp_path: Path) -> None:
 
 
 def test_queue_is_capped(tmp_path: Path) -> None:
-    from viraprime.web.jobs import QueueFull
+    from vhirprimerlab.web.jobs import QueueFull
 
     mgr = JobManager(tmp_path, Limits(workers=1, max_queue=2), target=fake_job)
     mgr.submit({}, ["0"])

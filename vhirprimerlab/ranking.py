@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from viraprime.models import RankResult, ScoredPair
+from vhirprimerlab.models import RankResult, ScoredPair
 
 
 def _sort_key(p: ScoredPair) -> tuple[float, float]:

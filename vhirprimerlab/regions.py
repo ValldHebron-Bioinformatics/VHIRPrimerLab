@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from viraprime.models import PipelineError, Region
+from vhirprimerlab.models import PipelineError, Region
 
 NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
 SPEC_RE = re.compile(r"^(?:(?P<name>[^:]*):)?(?P<start>\d+)-(?P<end>\d+)$")

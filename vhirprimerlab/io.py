@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from Bio import SeqIO
 
-from viraprime.degenerate import degenerate_bases, fold, gc_percent
-from viraprime.models import (
+from vhirprimerlab.degenerate import degenerate_bases, fold, gc_percent
+from vhirprimerlab.models import (
     Alignment,
     CheckReport,
     CheckResult,
@@ -23,7 +23,7 @@ from viraprime.models import (
     TilingReport,
     TilingResult,
 )
-from viraprime.ranking import count_reasons
+from vhirprimerlab.ranking import count_reasons
 
 PER_PRIMER_DEGENERACY = [
     "forward_degenerate_bases", "reverse_degenerate_bases", "forward_variants", "reverse_variants",
@@ -35,7 +35,7 @@ def _degeneracy(fwd: str, rev: str) -> list[int]:
     return [degenerate_bases(fwd), degenerate_bases(rev), fold(fwd), fold(rev)]
 
 if TYPE_CHECKING:
-    from viraprime.coords import CoordMap
+    from vhirprimerlab.coords import CoordMap
 
 log = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ def _header_lines(report: RunReport | CheckReport | TilingReport, title: str) ->
 
 
 def write_report(report: RunReport, path: Path) -> None:
-    out = _header_lines(report, "viraprime report")
+    out = _header_lines(report, "VHIRPrimerLab report")
     for res in report.regions:
         out += _region_section(res, report.min_coverage) + [""]
     failed = [res.region.name for res in report.regions if res.rank.below_threshold]
@@ -284,7 +284,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
 
 
 def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
-    out = _header_lines(report, "viraprime check report")
+    out = _header_lines(report, "VHIRPrimerLab check report")
     for res in report.results:
         out += _pair_section(res, cmap) + [""]
     low = [res.assay.name for res in report.results if res.below_threshold]
@@ -307,7 +307,7 @@ TILING_TSV_COLUMNS = [
 
 
 def _names(index: int) -> tuple[str, str]:
-    return f"viraprime_{index}_LEFT", f"viraprime_{index}_RIGHT"
+    return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
 
 
 def _span(first_col: int, last_col: int, cmap: CoordMap) -> tuple[int, int] | None:
@@ -361,7 +361,7 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
-    out = _header_lines(report, "viraprime tiling report")
+    out = _header_lines(report, "VHIRPrimerLab tiling report")
     out += ["Tiling", "------",
             f"Amplicons: {len(res.amplicons)}",
             f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "

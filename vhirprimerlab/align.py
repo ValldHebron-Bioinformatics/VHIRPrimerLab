@@ -9,8 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Callable, Literal
 
-from viraprime.io import alignment_from_records, load_fasta
-from viraprime.models import Alignment, PipelineError, Record
+from vhirprimerlab.io import alignment_from_records, load_fasta
+from vhirprimerlab.models import Alignment, PipelineError, Record
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def run_aligner(records: list[Record], tool: Aligner) -> Alignment:
             raise PipelineError(f"{tool} output is missing sequences: {', '.join(missing)}")
         return alignment_from_records([Record(r.id, rows[r.id]) for r in records])
     binary = check_binary(tool)
-    with tempfile.TemporaryDirectory(prefix="viraprime_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="vhirprimerlab_") as tmp:
         tmpdir = Path(tmp)
         in_fa = tmpdir / "in.fasta"
         out_fa = tmpdir / "out.fasta"

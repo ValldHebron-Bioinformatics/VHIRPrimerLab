@@ -8,8 +8,8 @@ from collections import Counter
 
 import primer3
 
-from viraprime.models import Alignment, PairCoverage, ScoringParams
-from viraprime.scoring import CODE_FOR, IUPAC, ThreePrime, match_primer, score_pair
+from vhirprimerlab.models import Alignment, PairCoverage, ScoringParams
+from vhirprimerlab.scoring import CODE_FOR, IUPAC, ThreePrime, match_primer, score_pair
 
 BASES = "ACGT"
 

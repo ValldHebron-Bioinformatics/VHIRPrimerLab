@@ -1,5 +1,5 @@
 {
   "private": true,
-  "description": "Node tests for the viraprime browser engine",
+  "description": "Node tests for the vhirprimerlab browser engine",
   "devDependencies": { "pyodide": "0.27.7" }
 }

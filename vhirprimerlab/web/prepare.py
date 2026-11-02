@@ -1,4 +1,4 @@
-"""Check a web request and turn it into viraprime arguments (server and browser engines).
+"""Check a web request and turn it into vhirprimerlab arguments (server and browser engines).
 
 No web framework here: the browser worker imports this module under Pyodide.
 """
@@ -10,11 +10,11 @@ import io
 import tempfile
 from pathlib import Path
 
-from viraprime.check import load_assays
-from viraprime.cli import parse_args, validate_args
-from viraprime.models import PipelineError
-from viraprime.tiling import max_amplicons, target_length
-from viraprime.web.params import MODES, Limits, build_argv, validate_upload
+from vhirprimerlab.check import load_assays
+from vhirprimerlab.cli import parse_args, validate_args
+from vhirprimerlab.models import PipelineError
+from vhirprimerlab.tiling import max_amplicons, target_length
+from vhirprimerlab.web.params import MODES, Limits, build_argv, validate_upload
 
 
 def _usage_message(stderr: str) -> str:

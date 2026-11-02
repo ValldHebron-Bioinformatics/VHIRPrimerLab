@@ -9,10 +9,10 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT="$ROOT/site/app/engine"
-WORK="${TMPDIR:-/tmp}/viraprime-wasm"
+WORK="${TMPDIR:-/tmp}/vhirprimerlab-wasm"
 XBUILDENV=0.27.8            # same ABI (pyodide_2024_0) as the Pyodide 0.27.7 runtime the page loads
 PRIMER3=2.2.0
-MAFFT=7.526                 # keep MAFFT_VERSION in viraprime/web/static/mafft-runner.js in step
+MAFFT=7.526                 # keep MAFFT_VERSION in vhirprimerlab/web/static/mafft-runner.js in step
 mkdir -p "$WORK" "$OUT"
 cd "$WORK"
 

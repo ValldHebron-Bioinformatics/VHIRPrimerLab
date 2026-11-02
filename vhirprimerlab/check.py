@@ -9,8 +9,8 @@ from pathlib import Path
 import primer3
 from Bio.Seq import reverse_complement
 
-from viraprime.degenerate import fold, gc_percent, tm_range
-from viraprime.models import (
+from vhirprimerlab.degenerate import fold, gc_percent, tm_range
+from vhirprimerlab.models import (
     Alignment,
     Assay,
     CheckResult,
@@ -20,10 +20,10 @@ from viraprime.models import (
     PipelineError,
     ScoringParams,
 )
-from viraprime.regions import NAME_RE
-from viraprime.scoring import IUPAC, score_pair
+from vhirprimerlab.regions import NAME_RE
+from vhirprimerlab.scoring import IUPAC, score_pair
 
-log = logging.getLogger("viraprime")
+log = logging.getLogger("vhirprimerlab")
 
 TM_FOLD_LIMIT = 256  # above this, enumerating every expansion for a Tm range is too slow
 NOT_DOWNSTREAM = "reverse site is not downstream of forward site"

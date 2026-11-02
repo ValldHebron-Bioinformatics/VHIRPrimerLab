@@ -5,10 +5,10 @@ import shutil
 from pathlib import Path
 
 from tests.synthetic import make_genome_family, write_fasta
-from viraprime import align
-from viraprime.align import register_aligner
-from viraprime.cli import main, set_progress_reporter
-from viraprime.io import alignment_from_records
+from vhirprimerlab import align
+from vhirprimerlab.align import register_aligner
+from vhirprimerlab.cli import main, set_progress_reporter
+from vhirprimerlab.io import alignment_from_records
 
 
 def test_registered_aligner_is_used(tmp_path: Path, monkeypatch) -> None:

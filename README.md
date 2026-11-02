@@ -1,4 +1,4 @@
-# viraprime
+# VHIRPrimerLab
 
 Design PCR primers that work across a family of related sequences (strains of a virus,
 variants of a gene, …). Give it your genomes and the number of amplicons you want: it tiles
@@ -7,8 +7,10 @@ match as many of your sequences as possible. Every primer is checked against eve
 not just a consensus.
 
 ```bash
-viraprime -i genomes.fasta -n 10 -o out
+vhirprimerlab -i genomes.fasta -n 10 -o out
 ```
+
+The command is `vhirprimerlab` (lower case).
 
 Prefer not to install anything? See [Run it from the web](#run-it-from-the-web).
 
@@ -27,14 +29,14 @@ or MUSCLE 5 must be on `PATH` unless you pass a pre-aligned file with `--aligned
 
 ```bash
 python examples/make_example.py                # writes examples/genomes.fasta (24 genomes, 9 kb)
-viraprime -i examples/genomes.fasta -n 8 -o out
+vhirprimerlab -i examples/genomes.fasta -n 8 -o out
 ```
 
 This aligns the genomes, then picks 8 overlapping amplicons (~1.2 kb each, at least 50 bp
 overlap) covering the genome end to end. Odd amplicons go in pool 1 and even ones in pool 2,
 so overlapping products never share a tube. It writes:
 
-- `primers.tsv`: one row per amplicon: pool, primer names (`viraprime_1_LEFT`, …) and
+- `primers.tsv`: one row per amplicon: pool, primer names (`VHIRPrimerLab_1_LEFT`, …) and
   sequences, and for each primer its length, Tm, GC %, number of degenerate bases and number of
   variants (for degenerate primers also the Tm range over the variants); then reference
   coordinates, overlap with the next amplicon, coverage and the sequences each amplicon misses,
@@ -86,7 +88,7 @@ Open the web app at **https://valldhebron-bioinformatics.github.io/viraprime/app
 FASTA, choose the number of amplicons, and get the primers with a coverage map and downloads.
 A "Check my primers" tab tests pairs you already have.
 
-The analysis runs **in your browser**: viraprime, primer3 and MAFFT are compiled to
+The analysis runs **in your browser**: VHIRPrimerLab, primer3 and MAFFT are compiled to
 WebAssembly, so your sequences are never uploaded and nothing needs installing. The first run
 loads about 20 MB of tools, which the browser keeps for later visits. It gives the same
 results as the command line: the design steps are the same code, and the alignment runs the
@@ -101,21 +103,21 @@ machine). On your own computer:
 
 ```bash
 pip install -e ".[web]"
-viraprime web            # opens http://127.0.0.1:8000
+vhirprimerlab web            # opens http://127.0.0.1:8000
 ```
 
 Or with Docker (MAFFT included):
 
 ```bash
-docker build -t viraprime-web .
-docker run -d --restart unless-stopped -p 7860:7860 viraprime-web   # http://<host>:7860
+docker build -t vhirprimerlab-web .
+docker run -d --restart unless-stopped -p 7860:7860 vhirprimerlab-web   # http://<host>:7860
 ```
 
-Server limits can be changed with environment variables: `VIRAPRIME_MAX_SEQS` (500),
-`VIRAPRIME_MAX_SEQ_LEN` (35000), `VIRAPRIME_MAX_UPLOAD_MB` (20), `VIRAPRIME_MAX_AMPLICONS` (200),
-`VIRAPRIME_WORKERS` (2), `VIRAPRIME_MAX_QUEUE` (20), `VIRAPRIME_TIMEOUT_S` (900),
-`VIRAPRIME_RETENTION_S` (86400) and `VIRAPRIME_JOBS_DIR`. Server uploads are deleted after
-`VIRAPRIME_RETENTION_S`.
+Server limits can be changed with environment variables: `VHIRPRIMERLAB_MAX_SEQS` (500),
+`VHIRPRIMERLAB_MAX_SEQ_LEN` (35000), `VHIRPRIMERLAB_MAX_UPLOAD_MB` (20), `VHIRPRIMERLAB_MAX_AMPLICONS` (200),
+`VHIRPRIMERLAB_WORKERS` (2), `VHIRPRIMERLAB_MAX_QUEUE` (20), `VHIRPRIMERLAB_TIMEOUT_S` (900),
+`VHIRPRIMERLAB_RETENTION_S` (86400) and `VHIRPRIMERLAB_JOBS_DIR`. Server uploads are deleted after
+`VHIRPRIMERLAB_RETENTION_S`.
 
 ### How the browser version is built
 
@@ -127,13 +129,13 @@ assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it on
 
 Instead of tiling the whole genome you can design pairs inside chosen regions
 (`--region`, `--amplicon-min`, `--amplicon-max`), or check primers you already have
-(`viraprime check`).
+(`vhirprimerlab check`).
 
 ### Example
 
 ```bash
 python examples/make_example.py          # writes examples/family.fasta (10 synthetic sequences)
-viraprime -i examples/family.fasta -o out \
+vhirprimerlab -i examples/family.fasta -o out \
     --region cons:61-540 --region hv:701-1100 \
     --amplicon-min 100 --amplicon-max 300 --allow-degenerate
 ```
@@ -142,11 +144,11 @@ The example family has a conserved block (61–540) and a hypervariable block (7
 finds pairs with 100 % coverage in `cons`, reports the best available (30 %) pairs for `hv` with
 `below_threshold=True`, explains why in `out/report.txt`, and exits with code 2.
 
-`python -m viraprime …` works the same as `viraprime …`.
+`python -m vhirprimerlab …` works the same as `vhirprimerlab …`.
 
 ### Checking existing primers
 
-`viraprime check` tests primer pairs you already have (a published assay, pairs from an earlier
+`vhirprimerlab check` tests primer pairs you already have (a published assay, pairs from an earlier
 run, pairs from another tool) against your sequences, without designing new ones. Each primer is
 placed where it fits the consensus best, then the pair is scored on every sequence with exactly
 the same matching rules as design mode.
@@ -161,7 +163,7 @@ hv	CTCCAGTGGMGGTCTTGGTKG	GCAYKCATCCMAGTAAGCACAC
 ```
 
 ```bash
-viraprime check -i examples/family.fasta --primers assays.tsv -o out_check
+vhirprimerlab check -i examples/family.fasta --primers assays.tsv -o out_check
 ```
 
 It writes `alignment.fasta`, `report.txt` (one section per pair, with why it misses sequences)
