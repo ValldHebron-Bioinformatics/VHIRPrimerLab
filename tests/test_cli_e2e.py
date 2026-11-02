@@ -44,6 +44,9 @@ def test_single_region_end_to_end(family: Path, tmp_path: Path) -> None:
     assert 100 <= start < end <= 500
     assert int(first["amplicon_len"]) == end - start + 1
     assert 100 <= int(first["amplicon_len"]) <= 300
+    report = (out / "report.txt").read_text()
+    assert f"Forward: {first['forward_seq']}  {first['forward_len']} nt, Tm {first['forward_tm']} °C" in report
+    assert f"Reverse: {first['reverse_seq']}  {first['reverse_len']} nt, Tm {first['reverse_tm']} °C" in report
 
 
 def test_two_regions(family: Path, tmp_path: Path) -> None:

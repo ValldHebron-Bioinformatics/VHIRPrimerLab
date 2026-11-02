@@ -310,6 +310,8 @@ def test_write_check_report_sections(tmp_path: Path) -> None:
     assert "VHIRPrimerLab check report" in text
     assert "Pair A1" in text and "Pair A2" in text
     assert "Consensus positions: forward 11-30, reverse 81-100" in text
+    assert f"Forward: {low.assay.forward}  20 nt, Tm {low.fwd_tm:.1f} °C, GC {low.fwd_gc:.1f} %" in text
+    assert f"Reverse: {low.assay.reverse}  20 nt, Tm {low.rev_tm:.1f} °C" in text
     assert "Why it misses sequences" in text and "fwd 3' mismatch: 1" in text
     assert "not located" in text and NOT_DOWNSTREAM_TEXT in text
     assert "Pairs below --min-coverage (100%): A1, A2" in text

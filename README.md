@@ -43,8 +43,9 @@ so overlapping products never share a tube. It writes:
   with the reason.
 - `scheme.bed`: the primer scheme in ARTIC format (`chrom start end name pool strand
   sequence`), ready for amplicon-sequencing pipelines.
-- `report.txt`: settings, input and alignment statistics, the tiling, bases left uncovered at
-  the genome ends, possible primer dimers within a pool, and the log.
+- `report.txt`: settings, input and alignment statistics, the tiling (each amplicon with both
+  primers: sequence, length, Tm, GC % and degenerate bases), bases left uncovered at the genome
+  ends, possible primer dimers within a pool, and the log.
 - `alignment.fasta`: the alignment used.
 
 ### How the amplicons are chosen
@@ -166,7 +167,8 @@ hv	CTCCAGTGGMGGTCTTGGTKG	GCAYKCATCCMAGTAAGCACAC
 vhirprimerlab check -i examples/family.fasta --primers assays.tsv -o out_check
 ```
 
-It writes `alignment.fasta`, `report.txt` (one section per pair, with why it misses sequences)
+It writes `alignment.fasta`, `report.txt` (one section per pair: each primer's length, Tm, GC % and degenerate bases,
+where it binds, and why it misses sequences)
 and `check.tsv`, one row per pair: `name, forward_seq, reverse_seq, forward_tm, reverse_tm,
 forward_gc, reverse_gc, forward_len, reverse_len, degenerate, forward_degenerate_bases,
 reverse_degenerate_bases, forward_variants, reverse_variants, forward_tm_range,
@@ -271,8 +273,8 @@ Regions are designed independently and may overlap.
   restarts at 1 for each region; `not_covered` lists `ID(reason)` for every missed sequence. Tm
   ranges are given for degenerate primers (min–max over all expansions).
 - `report.txt` — parameters, input statistics, dropped outliers, alignment statistics, one section
-  per region (candidates, coverage, and why the best pair misses sequences when no pair reaches
-  `--min-coverage`), a summary, and the full log.
+  per region (candidates, coverage, the best pair's primers with length, Tm, GC % and degenerate
+  bases, and why it misses sequences when no pair reaches `--min-coverage`), a summary, and the full log.
 
 ### Exit codes (region design)
 
