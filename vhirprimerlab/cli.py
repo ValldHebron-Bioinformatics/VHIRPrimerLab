@@ -102,6 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="tile the whole genome with this many overlapping amplicons (2 pools)")
     p.add_argument("--overlap", type=int, default=50,
                    help="tiling: minimum overlap between neighbouring amplicons (bp)")
+    p.add_argument("--max-start-loss", type=int, default=50,
+                   help="tiling: most genome bases left outside the first amplicon's insert (bp)")
+    p.add_argument("--max-end-loss", type=int, default=50,
+                   help="tiling: most genome bases left outside the last amplicon's insert (bp)")
     p.add_argument("--no-degenerate", action="store_true",
                    help="tiling: plain primers only (degenerate bases are on by default)")
     p.add_argument("--progress-file", type=Path, help=argparse.SUPPRESS)
@@ -266,6 +270,10 @@ def check_tiling_params(a: argparse.Namespace) -> None:
         problems.append("-n must be >= 1")
     if a.overlap < 0:
         problems.append("--overlap must be >= 0")
+    if a.max_start_loss < 0:
+        problems.append("--max-start-loss must be >= 0")
+    if a.max_end_loss < 0:
+        problems.append("--max-end-loss must be >= 0")
     if problems:
         raise PipelineError("Invalid parameters: " + "; ".join(problems))
 
@@ -392,7 +400,8 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         len_max=a.primer_len_max, gc_min=a.gc_min, gc_max=a.gc_max,
         max_mismatches=a.max_mismatches, window=a.three_prime_window,
         degenerate=not a.no_degenerate, max_degeneracy=a.max_degeneracy,
-        min_coverage=a.min_coverage,
+        min_coverage=a.min_coverage, max_start_loss=a.max_start_loss,
+        max_end_loss=a.max_end_loss,
     )
     result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
     progress("writing", 0.95)
