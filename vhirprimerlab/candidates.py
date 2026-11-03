@@ -26,6 +26,11 @@ def end_loss(c: PrimerCandidate, genome_len: int) -> int:
     return c.end + 1 if c.strand == "+" else genome_len - c.start
 
 
+def loss_limit(params: TilingParams, strand: str) -> int:
+    """Bases that may stay outside the insert at the end this primer reaches."""
+    return params.max_start_loss if strand == "+" else params.max_end_loss
+
+
 def _end_params(params: TilingParams) -> TilingParams:
     return dataclasses.replace(
         params, len_max=max(params.len_max, END_LEN_MAX), gc_min=0.0, gc_max=100.0
@@ -72,14 +77,14 @@ def enumerate_primers(
 ) -> tuple[list[PrimerCandidate], list[PrimerCandidate]]:
     """Forward and reverse primers on the consensus, one per 3' anchor position.
 
-    Within max_end_loss of either genome end the end rules apply (see END_LEN_MAX).
+    Within max_start_loss of the genome start, and max_end_loss of its end, the end rules
+    apply (see END_LEN_MAX).
     """
     n, ends = len(cons_seq), _end_params(params)
-    loss = params.max_end_loss
-    fwds = [c for e in range(n)
-            if (c := _best_length(cons_seq, e, "+", ends if e + 1 <= loss else params))]
-    revs = [c for s in range(n)
-            if (c := _best_length(cons_seq, s, "-", ends if n - s <= loss else params))]
+    fwds = [c for e in range(n) if (c := _best_length(
+        cons_seq, e, "+", ends if e + 1 <= params.max_start_loss else params))]
+    revs = [c for s in range(n) if (c := _best_length(
+        cons_seq, s, "-", ends if n - s <= params.max_end_loss else params))]
     return fwds, revs
 
 
@@ -156,7 +161,7 @@ def score_primers(
         mask = _mask(c.site, cols, aln, side, sp)
         scored = dataclasses.replace(c, cols=cols, mask=mask)
         if params.degenerate and mask != full:
-            at_end = end_loss(c, len(cons.seq)) <= params.max_end_loss
+            at_end = end_loss(c, len(cons.seq)) <= loss_limit(params, c.strand)
             gc = (0.0, 100.0) if at_end else (params.gc_min, params.gc_max)
             site = degenerate_site(
                 c.site, cols, aln, sp, params.max_degeneracy, side, gc,

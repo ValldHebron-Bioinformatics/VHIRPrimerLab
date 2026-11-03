@@ -60,6 +60,7 @@ SETTINGS: dict[str, dict[str, tuple[str, object]]] = {
     "tile": {
         "amplicons": ("-n", int),
         "overlap": ("--overlap", int),
+        "max_start_loss": ("--max-start-loss", int),
         "max_end_loss": ("--max-end-loss", int),
         "degenerate": ("--no-degenerate", "bool_off"),
         **_DESIGN,

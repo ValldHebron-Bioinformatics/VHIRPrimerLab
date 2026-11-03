@@ -92,12 +92,22 @@ def test_reaches_both_ends(result) -> None:
     assert all(n <= 50 for n in result.uncovered_ends)
 
 
-def test_choose_needs_primers_within_max_end_loss() -> None:
+def test_choose_needs_primers_within_the_end_limits() -> None:
     geom = geometry(1000, 2, 50, 0.20, 25)
-    fwds = [_p("+", 0, 10), _p("+", 450, 10)]
+    fwds = [_p("+", 0, 10), _p("+", 450, 10)]  # first insert starts 20 nt in
     revs = [_p("-", 600, 10), _p("-", 960, 10)]  # last insert ends 40 nt before the end
     assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000)
     assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_end_loss=39), 1000) is None
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_start_loss=19), 1000) is None
+
+
+def test_the_two_end_limits_are_independent() -> None:
+    geom = geometry(1000, 2, 50, 0.20, 25)
+    fwds = [_p("+", 100, 10), _p("+", 450, 10)]  # first insert starts 120 nt in
+    revs = [_p("-", 600, 10), _p("-", 960, 10)]  # last insert ends 40 nt before the end
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000) is None
+    loose = _params(n_amplicons=2, max_start_loss=120)
+    assert choose(fwds, revs, 2, geom, loose, 1000)
 
 
 def test_choose_prefers_primers_that_match_on_their_own() -> None:
@@ -114,6 +124,8 @@ def test_choose_prefers_primers_that_match_on_their_own() -> None:
 def test_no_fit_names_the_unreachable_end(family) -> None:
     aln, cons, stats, cmap = family
     with pytest.raises(PipelineError, match="within 0 nt of the genome start"):
+        tile(aln, cons, stats, cmap, _params(max_start_loss=0))
+    with pytest.raises(PipelineError, match="within 0 nt of the genome end"):
         tile(aln, cons, stats, cmap, _params(max_end_loss=0))
 
 
@@ -224,7 +236,7 @@ def _c_sticks(a: str, b: str) -> float:
 def test_avoid_dimers_swaps_out_a_dimer_primer(monkeypatch) -> None:
     monkeypatch.setattr(tiling, "dimer_dg", _c_sticks)
     geom, fwds, revs = _dimer_setup(alt_bits=10)
-    params = _params(n_amplicons=1, max_end_loss=150)  # the alternative starts at 100
+    params = _params(n_amplicons=1, max_start_loss=150)  # the alternative starts at 100
     path, g = tiling._choose_any(fwds, revs, 1, [geom], params, 1000, set())
     assert path[0][0].start == 0 and tiling._dimers(path)
     path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, 1000)

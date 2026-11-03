@@ -7,7 +7,13 @@ import logging
 import math
 from typing import Callable
 
-from vhirprimerlab.candidates import end_loss, enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.candidates import (
+    end_loss,
+    enumerate_primers,
+    loss_limit,
+    pick_conserved,
+    score_primers,
+)
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.models import (
     Alignment,
@@ -120,7 +126,7 @@ def choose(
         preds.append([ri for ri in range(lo, hi)
                       if revs[ri].end - f.start + 1 <= geom.max_outer_overlap])
 
-    first_ok = [end_loss(f, genome_len) <= params.max_end_loss for f in fwds]
+    first_ok = [end_loss(f, genome_len) <= params.max_start_loss for f in fwds]
     last_ok = [end_loss(r, genome_len) <= params.max_end_loss for r in revs]
 
     def run(t: int) -> Path_ | None:
@@ -285,13 +291,14 @@ def _no_fit(
 ) -> PipelineError:
     """Explain why no tiling exists: a genome end out of reach, or the longest primer-free
     stretch and N values that work."""
-    for side, cands in (("start", fwds), ("end", revs)):
+    for side, strand, cands in (("start", "+", fwds), ("end", "-", revs)):
+        limit = loss_limit(params, strand)
         closest = min((end_loss(c, genome_len) for c in cands), default=genome_len)
-        if closest > params.max_end_loss:
+        if closest > limit:
             return PipelineError(
-                f"No tiling with {n} amplicons: no acceptable primer within "
-                f"{params.max_end_loss} nt of the genome {side} (the closest leaves {closest:,} nt "
-                f"out); raise --max-end-loss"
+                f"No tiling with {n} amplicons: no acceptable primer within {limit} nt of the "
+                f"genome {side} (the closest leaves {closest:,} nt out); "
+                f"set --max-{side}-loss to {closest:,} or more"
             )
     sites = sorted((c.start, c.end) for c in fwds + revs)
     gap, prev_end = (0, -1, -1), -1

@@ -247,7 +247,8 @@ class TilingParams:
     degenerate: bool
     max_degeneracy: int
     min_coverage: float
-    max_end_loss: int = 50  # genome bases allowed outside the first / last insert
+    max_start_loss: int = 50  # genome bases allowed outside the first insert
+    max_end_loss: int = 50  # genome bases allowed outside the last insert
 
     @property
     def scoring(self) -> ScoringParams:
