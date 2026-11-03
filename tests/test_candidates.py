@@ -6,7 +6,9 @@ import pytest
 from Bio.Seq import reverse_complement
 
 from tests.synthetic import make_genome_family
-from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.candidates import (
+    END_LEN_MAX, end_loss, enumerate_primers, pick_conserved, score_primers,
+)
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.degenerate import degenerate_site, fold
 from vhirprimerlab.io import alignment_from_records
@@ -32,13 +34,16 @@ def raw(family):
     return enumerate_primers(family[2].seq, PARAMS)
 
 
-def test_enumerate_respects_limits(raw) -> None:
+def test_enumerate_respects_limits(family, raw) -> None:
     fwds, revs = raw
     assert len(fwds) > 100 and len(revs) > 100
+    n = len(family[2].seq)
     for c in fwds + revs:
-        assert 18 <= c.length <= 25
         assert 57 <= c.tm <= 63
-        assert 40 <= c.gc <= 60
+        if end_loss(c, n) <= 50:  # genome ends: longer primers, any GC
+            assert 18 <= c.length <= END_LEN_MAX
+        else:
+            assert 18 <= c.length <= 25 and 40 <= c.gc <= 60
     assert all(c.strand == "+" and c.seq == c.site == c.base_seq for c in fwds)
     assert all(c.strand == "-" and c.seq == reverse_complement(c.site) for c in revs)
 
@@ -120,3 +125,17 @@ def test_degenerate_site_keeps_gc_within_limits() -> None:
     strict = ScoringParams(0, 5)
     assert degenerate_site(site, list(range(20)), aln, strict, 4, "right") != site
     assert degenerate_site(site, list(range(20)), aln, strict, 4, "right", gc_limits=(40, 60)) == site
+
+
+def test_at_rich_genome_ends_still_get_primers() -> None:
+    # AT-rich ends: no 18-25 nt primer with 40-60 % GC reaches 57 C there
+    at = "TTAGTTGATCATTAGTTATTTAAAATTATAAATTAGTAACTAACTGATAAAAAATCAGAAATTGAAGTTGAATGTATACG"
+    middle = "".join("ACGT"[(i * 7 + i // 3) % 4] for i in range(400))
+    seq = reverse_complement(at) + middle + at
+    fwds, revs = enumerate_primers(seq, PARAMS)
+    first = [f for f in fwds if end_loss(f, len(seq)) <= 50]
+    last = [r for r in revs if end_loss(r, len(seq)) <= 50]
+    assert first and last
+    for c in first + last:
+        assert 57 <= c.tm <= 63 and c.length <= END_LEN_MAX
+    assert any(c.gc < 40 for c in last)

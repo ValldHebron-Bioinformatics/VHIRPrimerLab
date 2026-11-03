@@ -7,7 +7,7 @@ import logging
 import math
 from typing import Callable
 
-from vhirprimerlab.candidates import enumerate_primers, pick_conserved, score_primers
+from vhirprimerlab.candidates import end_loss, enumerate_primers, pick_conserved, score_primers
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.models import (
     Alignment,
@@ -57,7 +57,6 @@ def geometry(
         len_min=len_min,
         len_max=math.ceil(target * (1 + tolerance)),
         tolerance=tolerance,
-        end_slack=target // 4,
         max_outer_overlap=max_outer,
     )
 
@@ -86,8 +85,10 @@ def choose(
 ) -> Path_ | None:
     """Exactly n amplicons in genome order maximising the worst coverage, then the sum.
 
-    Ties are broken by how close the tiling reaches both genome ends, then by the
-    summed primer penalties.
+    Ties are broken by how many sequences each primer matches on its own (a primer
+    beside one that misses sequences, e.g. ones truncated at the genome end, should
+    still match them), then by how close the tiling reaches both genome ends, then by
+    the summed primer penalties.
 
     Dynamic programming over layers k = 1..n whose state is the reverse primer that
     ends amplicon k; feasibility for a coverage threshold is monotone, so the
@@ -98,7 +99,7 @@ def choose(
     f_starts = [f.start for f in fwds]
     r_starts = [r.start for r in revs]
 
-    # candidate amplicons, grouped by reverse primer: r -> [(f, cov, -penalty)]
+    # candidate amplicons, grouped by reverse primer: r -> [(f, cov, primer matches, -penalty)]
     by_rev: list[list[tuple[int, int, float]]] = []
     for r in revs:
         lo = bisect.bisect_left(f_starts, r.end - geom.len_max + 1)
@@ -107,7 +108,8 @@ def choose(
         for fi in range(lo, hi):
             f = fwds[fi]
             if abs(f.tm - r.tm) <= params.max_tm_diff:
-                amps.append((fi, _popcount(f.mask & r.mask), -(f.penalty + r.penalty)))
+                amps.append((fi, _popcount(f.mask & r.mask), _popcount(f.mask) + _popcount(r.mask),
+                             -(f.penalty + r.penalty)))
         by_rev.append(amps)
 
     # reverse primers that may end the amplicon before one starting with fwds[fi]
@@ -118,34 +120,34 @@ def choose(
         preds.append([ri for ri in range(lo, hi)
                       if revs[ri].end - f.start + 1 <= geom.max_outer_overlap])
 
-    first_ok = [f.start <= geom.end_slack for f in fwds]
-    last_ok = [r.end >= genome_len - 1 - geom.end_slack for r in revs]
+    first_ok = [end_loss(f, genome_len) <= params.max_end_loss for f in fwds]
+    last_ok = [end_loss(r, genome_len) <= params.max_end_loss for r in revs]
 
     def run(t: int) -> Path_ | None:
-        # layer value: (sum of coverage, -bases before the first primer, -sum of penalty);
-        # back[k][ri] = (fi, prev ri)
-        value: dict[int, tuple[int, int, float]] = {}
+        # layer value: (sum of coverage, sum of primer matches, -bases before the first
+        # primer, -sum of penalty); back[k][ri] = (fi, prev ri)
+        value: dict[int, tuple[int, int, int, float]] = {}
         back: list[dict[int, tuple[int, int | None]]] = [{}]
         for ri, amps in enumerate(by_rev):
-            for fi, cov, neg in amps:
-                v = (cov, -fwds[fi].start, neg)
+            for fi, cov, pm, neg in amps:
+                v = (cov, pm, -fwds[fi].start, neg)
                 if cov >= t and first_ok[fi] and (ri not in value or v > value[ri]):
                     value[ri] = v
                     back[0][ri] = (fi, None)
         for _ in range(n - 1):
-            best_in: dict[int, tuple[tuple[int, int, float], int]] = {}
+            best_in: dict[int, tuple[tuple[int, int, int, float], int]] = {}
             for fi, rs in enumerate(preds):
                 cands = [(value[ri], ri) for ri in rs if ri in value]
                 if cands:
                     best_in[fi] = max(cands)
-            new: dict[int, tuple[int, int, float]] = {}
+            new: dict[int, tuple[int, int, int, float]] = {}
             layer: dict[int, tuple[int, int | None]] = {}
             for ri, amps in enumerate(by_rev):
-                for fi, cov, neg in amps:
+                for fi, cov, pm, neg in amps:
                     if cov < t or fi not in best_in:
                         continue
-                    (s, start, p), prev = best_in[fi]
-                    v = (s + cov, start, p + neg)
+                    (s, m, start, p), prev = best_in[fi]
+                    v = (s + cov, m + pm, start, p + neg)
                     if ri not in new or v > new[ri]:
                         new[ri] = v
                         layer[ri] = (fi, prev)
@@ -153,7 +155,7 @@ def choose(
             back.append(layer)
             if not value:
                 return None
-        ends = [((v[0], v[1] - (genome_len - 1 - revs[ri].end), v[2]), ri)
+        ends = [((v[0], v[1], v[2] - (genome_len - 1 - revs[ri].end), v[3]), ri)
                 for ri, v in value.items() if last_ok[ri]]
         if not ends:
             return None
@@ -165,7 +167,7 @@ def choose(
             ri = prev
         return path[::-1]
 
-    levels = sorted({cov for amps in by_rev for _, cov, _ in amps})
+    levels = sorted({cov for amps in by_rev for _, cov, _, _ in amps})
     best: Path_ | None = None
     lo, hi = 0, len(levels) - 1
     while lo <= hi:
@@ -281,7 +283,16 @@ def _ref(cmap: CoordMap, cons: Consensus, pos: int, side: str) -> int | None:
 def _no_fit(
     fwds, revs, n: int, genome_len: int, params: TilingParams, cons: Consensus, cmap: CoordMap
 ) -> PipelineError:
-    """Explain why no tiling exists: the longest primer-free stretch and N values that work."""
+    """Explain why no tiling exists: a genome end out of reach, or the longest primer-free
+    stretch and N values that work."""
+    for side, cands in (("start", fwds), ("end", revs)):
+        closest = min((end_loss(c, genome_len) for c in cands), default=genome_len)
+        if closest > params.max_end_loss:
+            return PipelineError(
+                f"No tiling with {n} amplicons: no acceptable primer within "
+                f"{params.max_end_loss} nt of the genome {side} (the closest leaves {closest:,} nt "
+                f"out); raise --max-end-loss"
+            )
     sites = sorted((c.start, c.end) for c in fwds + revs)
     gap, prev_end = (0, -1, -1), -1
     for start, end in sites + [(genome_len, genome_len)]:

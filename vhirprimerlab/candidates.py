@@ -16,6 +16,21 @@ from vhirprimerlab.structure import structure_ok
 
 Progress = Callable[[str, float], None]
 
+# Genome ends are often AT-rich (the hMPV trailer, for one): a primer that reaches them
+# may need more bases to reach the Tm, so there the length limit rises and GC % is free.
+END_LEN_MAX = 32
+
+
+def end_loss(c: PrimerCandidate, genome_len: int) -> int:
+    """Genome bases left outside the insert if c is the first forward or last reverse primer."""
+    return c.end + 1 if c.strand == "+" else genome_len - c.start
+
+
+def _end_params(params: TilingParams) -> TilingParams:
+    return dataclasses.replace(
+        params, len_max=max(params.len_max, END_LEN_MAX), gc_min=0.0, gc_max=100.0
+    )
+
 
 def _rc_structure_ok(site: str) -> bool:
     return structure_ok(reverse_complement(site))
@@ -55,9 +70,16 @@ def _best_length(
 def enumerate_primers(
     cons_seq: str, params: TilingParams
 ) -> tuple[list[PrimerCandidate], list[PrimerCandidate]]:
-    """Forward and reverse primers on the consensus, one per 3' anchor position."""
-    fwds = [c for e in range(len(cons_seq)) if (c := _best_length(cons_seq, e, "+", params))]
-    revs = [c for s in range(len(cons_seq)) if (c := _best_length(cons_seq, s, "-", params))]
+    """Forward and reverse primers on the consensus, one per 3' anchor position.
+
+    Within max_end_loss of either genome end the end rules apply (see END_LEN_MAX).
+    """
+    n, ends = len(cons_seq), _end_params(params)
+    loss = params.max_end_loss
+    fwds = [c for e in range(n)
+            if (c := _best_length(cons_seq, e, "+", ends if e + 1 <= loss else params))]
+    revs = [c for s in range(n)
+            if (c := _best_length(cons_seq, s, "-", ends if n - s <= loss else params))]
     return fwds, revs
 
 
@@ -134,8 +156,10 @@ def score_primers(
         mask = _mask(c.site, cols, aln, side, sp)
         scored = dataclasses.replace(c, cols=cols, mask=mask)
         if params.degenerate and mask != full:
+            at_end = end_loss(c, len(cons.seq)) <= params.max_end_loss
+            gc = (0.0, 100.0) if at_end else (params.gc_min, params.gc_max)
             site = degenerate_site(
-                c.site, cols, aln, sp, params.max_degeneracy, side, (params.gc_min, params.gc_max),
+                c.site, cols, aln, sp, params.max_degeneracy, side, gc,
                 accept=structure_ok if c.strand == "+" else _rc_structure_ok,
             )
             if site != c.site:
