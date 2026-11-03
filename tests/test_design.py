@@ -46,3 +46,13 @@ def test_no_candidates_returns_explain() -> None:
     r = run_primer3(cons, (0, 300), params(100, 200))
     assert r.pairs == []
     assert "PRIMER_LEFT_EXPLAIN" in r.explain
+
+
+def test_primers_keep_the_3_prime_gc_limit(family_base: str) -> None:
+    from vhirprimerlab.structure import MAX_END_GC, end_gc
+
+    cons = Consensus(family_base, list(range(len(family_base))))
+    pairs = run_primer3(cons, (0, len(family_base)), params(100, 300)).pairs
+    assert pairs
+    for p in pairs:
+        assert end_gc(p.forward.seq) <= MAX_END_GC and end_gc(p.reverse.seq) <= MAX_END_GC
