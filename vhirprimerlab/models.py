@@ -203,6 +203,9 @@ class CheckResult:
     rev_gc: float
     degenerate: bool
     below_threshold: bool
+    fwd_structure: list[str] = field(default_factory=list)  # hairpin/self-dimer problems
+    rev_structure: list[str] = field(default_factory=list)
+    pair_dimer_dg: float | None = None  # forward x reverse, cal/mol (None: not checked)
 
 
 @dataclass
@@ -222,6 +225,7 @@ class CheckReport:
     min_coverage: float
     results: list[CheckResult]
     log_lines: list[str]
+    dimers: list[tuple[str, str, float]] = field(default_factory=list)  # across pairs
 
 
 @dataclass(frozen=True)

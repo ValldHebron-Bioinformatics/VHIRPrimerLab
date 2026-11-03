@@ -68,12 +68,36 @@
 
         <div class="field" data-modes="check">
           <label for="primers">Your primer pairs</label>
-          <textarea id="primers" rows="5" spellcheck="false" autocomplete="off" aria-describedby="primers-help" placeholder="pair1  ACGTGGTCAGCTAGCTAGGA  TTGCAGGTCAAGCTGAACGT…"></textarea>
-          <p class="help" id="primers-help">One pair per line: name, forward and reverse, written 5′→3′ as ordered, separated by tabs or spaces. IUPAC codes allowed.</p>
+          <textarea id="primers" rows="5" spellcheck="false" autocomplete="off" aria-describedby="primers-help" placeholder="pair1,ACGTGGTCAGCTAGCTAGGA,TTGCAGGTCAAGCTGAACGT…"></textarea>
+          <div class="drop-actions">
+            <label class="btn btn-quiet" for="primers-file">Load a file</label>
+            <input class="sr-only" type="file" id="primers-file" accept=".csv,.tsv,.txt,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          </div>
+          <p class="help" id="primers-help">One pair per line: name, forward, reverse, written 5′→3′ as ordered and separated by commas, tabs or spaces; IUPAC codes allowed. Or load a CSV, TSV or Excel (.xlsx) file, including a primers.tsv order sheet, where <span translate="no">X_LEFT</span> and <span translate="no">X_RIGHT</span> become pair X.</p>
+          <p class="error" id="primers-error" role="alert" hidden></p>
         </div>
 
-        <details class="advanced" id="advanced">
-          <summary>Advanced settings</summary>
+        <fieldset class="field level-field">
+          <legend>Settings</legend>
+          <div class="seg">
+            <label><input type="radio" name="level" value="basic" checked> Basic</label>
+            <label><input type="radio" name="level" value="advanced"> Advanced</label>
+          </div>
+          <p class="help" id="basic-note">Recommended settings: up to 2 mismatches per primer, the last 5 bases at the 3′ end must match exactly, and a 95 % coverage target.</p>
+        </fieldset>
+
+        <div class="advanced" id="advanced" hidden>
+          <fieldset class="field rules" data-modes="tile regions check">
+            <legend>When does a primer bind a sequence?</legend>
+            <div class="grid-fields">
+              <div class="field"><label for="max_mismatches">Mismatches allowed</label><input type="number" id="max_mismatches" name="max_mismatches" autocomplete="off" data-setting="max_mismatches" value="2" min="0" max="10" aria-describedby="rule-text"></div>
+              <div class="field"><label for="three_prime_window">Exact bases at 3′</label><input type="number" id="three_prime_window" name="three_prime_window" autocomplete="off" data-setting="three_prime_window" value="5" min="1" max="20" aria-describedby="rule-text"></div>
+            </div>
+            <figure class="rule-figure">
+              <div class="rule-strip" id="rule-strip" aria-hidden="true"></div>
+              <figcaption class="help" id="rule-text"></figcaption>
+            </figure>
+          </fieldset>
           <div class="adv-body">
             <label class="check" data-modes="tile regions"><input type="checkbox" id="use-regions"> Target specific regions instead of the whole genome</label>
             <div class="field" data-modes="regions">
@@ -93,8 +117,6 @@
               <div class="field" data-modes="tile regions"><label for="primer_len_max">Primer length max</label><input type="number" id="primer_len_max" name="primer_len_max" autocomplete="off" data-setting="primer_len_max" value="25" min="1"></div>
               <div class="field" data-modes="tile regions"><label for="gc_min">GC min (%)</label><input type="number" id="gc_min" name="gc_min" autocomplete="off" data-setting="gc_min" value="40" min="0" max="100"></div>
               <div class="field" data-modes="tile regions"><label for="gc_max">GC max (%)</label><input type="number" id="gc_max" name="gc_max" autocomplete="off" data-setting="gc_max" value="60" min="0" max="100"></div>
-              <div class="field" data-modes="tile regions check"><label for="max_mismatches">Max mismatches per primer</label><input type="number" id="max_mismatches" name="max_mismatches" autocomplete="off" data-setting="max_mismatches" value="2" min="0"></div>
-              <div class="field" data-modes="tile regions check"><label for="three_prime_window">Exact 3′ bases</label><input type="number" id="three_prime_window" name="three_prime_window" autocomplete="off" data-setting="three_prime_window" value="5" min="1"></div>
               <div class="field" data-modes="tile regions check"><label for="min_coverage">Coverage target (%)</label><input type="number" id="min_coverage" name="min_coverage" autocomplete="off" data-setting="min_coverage" value="95" min="0" max="100"></div>
               <div class="field" data-modes="tile regions"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
               <div class="field" data-modes="tile regions check"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
@@ -103,7 +125,7 @@
             <label class="check" data-modes="tile"><input type="checkbox" id="degenerate" checked> Allow degenerate bases (IUPAC) where they rescue sequences</label>
             <label class="check" data-modes="regions"><input type="checkbox" id="allow_degenerate"> Allow degenerate bases (IUPAC) where they rescue sequences</label>
           </div>
-        </details>
+        </div>
 
         <div class="submit">
           <button type="submit" class="btn btn-ink" id="run">Design primers</button>

@@ -52,8 +52,45 @@ def test_load_assays_header_only(tmp_path: Path) -> None:
 
 
 def test_load_assays_wrong_field_count(tmp_path: Path) -> None:
-    with pytest.raises(PipelineError, match="line 1: expected 3 tab-separated columns"):
+    with pytest.raises(PipelineError, match="line 1: expected 3 columns"):
+        load_assays(_write(tmp_path, f"A1\t{F}\t{R}\t{R}\n"), 5)
+    with pytest.raises(PipelineError, match="line 1: expected 3"):
+        load_assays(_write(tmp_path, f"{F}\n"), 5)
+
+
+# ---------- order sheet (name, sequence) ----------
+
+def test_load_assays_order_sheet(tmp_path: Path) -> None:
+    text = (f"name\tsequence\nVHIRPrimerLab_1_LEFT\t{F}\nVHIRPrimerLab_1_RIGHT\t{R}\n"
+            f"B_r\t{F}\nB_f\t{R}\n")
+    assert load_assays(_write(tmp_path, text), 5) == [
+        Assay("VHIRPrimerLab_1", F, R), Assay("B", R, F)]
+
+
+def test_load_assays_order_sheet_mixed_with_pairs(tmp_path: Path) -> None:
+    text = f"A1\t{F}\t{R}\nX-FWD\t{F}\nX-REV\t{R}\n"
+    assert load_assays(_write(tmp_path, text), 5) == [Assay("A1", F, R), Assay("X", F, R)]
+
+
+def test_load_assays_order_sheet_needs_side(tmp_path: Path) -> None:
+    with pytest.raises(PipelineError, match="line 1: primer name 'A1' does not say which side"):
         load_assays(_write(tmp_path, f"A1\t{F}\n"), 5)
+
+
+def test_load_assays_order_sheet_missing_partner(tmp_path: Path) -> None:
+    with pytest.raises(PipelineError, match="pair A1 has no reverse primer"):
+        load_assays(_write(tmp_path, f"A1_LEFT\t{F}\n"), 5)
+
+
+def test_load_assays_order_sheet_two_of_one_side(tmp_path: Path) -> None:
+    with pytest.raises(PipelineError, match="line 2: pair A1 has two forward primers"):
+        load_assays(_write(tmp_path, f"A1_LEFT\t{F}\nA1_F\t{F}\n"), 5)
+
+
+def test_load_assays_order_sheet_duplicate_pair(tmp_path: Path) -> None:
+    text = f"A1\t{F}\t{R}\nA1_LEFT\t{F}\n"
+    with pytest.raises(PipelineError, match="duplicate pair names: A1"):
+        load_assays(_write(tmp_path, text), 5)
 
 
 def test_load_assays_invalid_name(tmp_path: Path) -> None:
@@ -371,3 +408,94 @@ def test_not_located_is_below_threshold_even_at_zero_coverage() -> None:
     aln, cons = _family()
     res = check_assay(Assay("P", cons.seq[80:100], reverse_complement(cons.seq[10:30])), aln, cons, PARAMS, 0)
     assert res.located is False and res.below_threshold is True
+
+
+# ---------- dimers ----------
+
+def test_cross_dimers_skip_own_pair_and_sort(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from vhirprimerlab import structure
+    from vhirprimerlab.check import cross_dimers
+
+    strong = {frozenset({"AAAA", "CCCC"}): -12000.0, frozenset({"AAAA", "GGGG"}): -15000.0,
+              frozenset({"AAAA", "TTTT"}): -20000.0}  # AAAA x TTTT is one pair: not reported
+    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
+                        lambda a, b: SimpleNamespace(dg=strong.get(frozenset({a, b}), -1000.0)))
+    dimers = cross_dimers([Assay("P1", "AAAA", "TTTT"), Assay("P2", "CCCC", "GGGG")])
+    assert dimers == [("P1 forward", "P2 reverse", -15000.0), ("P1 forward", "P2 forward", -12000.0)]
+
+
+def test_structure_warnings() -> None:
+    from types import SimpleNamespace
+
+    from vhirprimerlab.check import MAX_CROSS_WARNINGS, structure_warnings
+
+    res = SimpleNamespace(assay=Assay("P1", F, R), fwd_structure=["hairpin Tm 52.0 °C (max 47)"],
+                          rev_structure=[], pair_dimer_dg=-10500.0)
+    dimers = [("P1 forward", "P2 reverse", -9500.0)] * (MAX_CROSS_WARNINGS + 2)
+    lines = structure_warnings([res], dimers)
+    assert lines[0] == "Primer structure: P1 forward: hairpin Tm 52.0 °C (max 47)"
+    assert lines[1] == "Primer dimer: P1 forward × reverse, ΔG -10.5 kcal/mol"
+    assert lines[2] == "Primer dimer if mixed in one tube: P1 forward × P2 reverse, ΔG -9.5 kcal/mol"
+    assert lines[-1] == "Primer dimer if mixed in one tube: 2 more in report.txt"
+    assert len(lines) == 2 + MAX_CROSS_WARNINGS + 1
+
+
+# ---------- CSV and Excel ----------
+
+def test_load_assays_csv(tmp_path: Path) -> None:
+    p = tmp_path / "p.csv"
+    p.write_text(f'name,forward,reverse\n"A1",{F},{R}\n\nA2,{R},{F}\n')
+    assert load_assays(p, 5) == [Assay("A1", F, R), Assay("A2", R, F)]
+
+
+def test_load_assays_semicolon_csv_latin1(tmp_path: Path) -> None:
+    p = tmp_path / "p.csv"
+    p.write_bytes(f"# primers de l'Ã rea\nnom;forward;reverse\nA1;{F};{R}\n".encode("latin-1"))
+    assert load_assays(p, 5) == [Assay("A1", F, R)]
+
+
+def _xlsx(path: Path, rows: list[list[str]]) -> Path:
+    """A minimal .xlsx: first row as shared strings, the rest as inline strings."""
+    import zipfile
+
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    shared = rows[0]
+    xml_rows = []
+    for i, row in enumerate(rows, start=1):
+        cells = "".join(
+            f'<c r="{chr(65 + j)}{i}" t="s"><v>{j}</v></c>' if i == 1
+            else f'<c r="{chr(65 + j)}{i}" t="inlineStr"><is><t>{v}</t></is></c>'
+            for j, v in enumerate(row) if v)
+        xml_rows.append(f'<row r="{i}">{cells}</row>')
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("xl/workbook.xml", f'<workbook {ns} xmlns:r="http://schemas.openxmlformats.org/'
+                   'officeDocument/2006/relationships"><sheets><sheet name="Primers" sheetId="1" '
+                   'r:id="rId1"/></sheets></workbook>')
+        z.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/'
+                   'package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/>'
+                   '</Relationships>')
+        z.writestr("xl/sharedStrings.xml", f'<sst {ns}>' + "".join(f"<si><t>{v}</t></si>" for v in shared) + "</sst>")
+        z.writestr("xl/worksheets/sheet1.xml", f'<worksheet {ns}><sheetData>{"".join(xml_rows)}</sheetData></worksheet>')
+    return path
+
+
+def test_load_assays_xlsx(tmp_path: Path) -> None:
+    p = _xlsx(tmp_path / "p.xlsx", [["name", "forward", "reverse"], ["A1", F, R], [], ["B_LEFT", F], ["B_RIGHT", R]])
+    assert load_assays(p, 5) == [Assay("A1", F, R), Assay("B", F, R)]
+
+
+def test_load_assays_xlsx_error_names_the_row(tmp_path: Path) -> None:
+    p = _xlsx(tmp_path / "p.xlsx", [["name", "forward", "reverse"], ["A1", "ACGTXCGTACGTACGTAC", R]])
+    with pytest.raises(PipelineError, match=r"p.xlsx row 2: forward primer .*position 5"):
+        load_assays(p, 5)
+
+
+def test_load_assays_bad_spreadsheets(tmp_path: Path) -> None:
+    (tmp_path / "old.xls").write_bytes(b"\xd0\xcf\x11\xe0")
+    with pytest.raises(PipelineError, match="old .xls files are not supported"):
+        load_assays(tmp_path / "old.xls", 5)
+    (tmp_path / "broken.xlsx").write_bytes(b"PK\x03\x04 not really")
+    with pytest.raises(PipelineError, match="not a readable .xlsx"):
+        load_assays(tmp_path / "broken.xlsx", 5)
