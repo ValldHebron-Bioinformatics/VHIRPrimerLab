@@ -16,7 +16,7 @@ from typing import Callable, NoReturn
 from Bio.Seq import reverse_complement
 
 from vhirprimerlab.align import run_aligner
-from vhirprimerlab.check import check_assay, load_assays
+from vhirprimerlab.check import check_assay, cross_dimers, load_assays, structure_warnings
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.degenerate import degenerate_pair, tm_range
@@ -474,6 +474,10 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
             log.warning("Pair %s: not located (%s)", res.assay.name, res.note)
         else:
             log.info("Pair %s: %.1f%% coverage", res.assay.name, res.coverage.coverage_pct)
+    progress("checking primer dimers", 0.8)
+    dimers = cross_dimers(assays)
+    for line in structure_warnings(results, dimers):
+        log.warning("%s", line)
     write_check_tsv(results, al.cmap, a.outdir / "check.tsv")
     low = [r.assay.name for r in results if r.below_threshold]
     if low:
@@ -486,7 +490,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         aln_length=al.aln.length, cons_length=len(al.cons.seq),
         n_conserved=sum(1 for s in al.stats if s.majority_freq == 1.0),
         mean_conservation=statistics.fmean(s.majority_freq for s in al.stats),
-        min_coverage=a.min_coverage, results=results, log_lines=log_lines,
+        min_coverage=a.min_coverage, results=results, log_lines=log_lines, dimers=dimers,
     )
     write_check_report(report, al.cmap, a.outdir / "report.txt")
     log.info("Wrote results to %s", a.outdir)

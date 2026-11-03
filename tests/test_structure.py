@@ -57,3 +57,13 @@ def test_dimer_dg_takes_worst_variant_pair(monkeypatch) -> None:
     monkeypatch.setattr(structure.primer3, "calc_heterodimer", hetero)
     assert dimer_dg("RAAA", "YCCC") == -12000.0
     assert dimer_dg("AAAA", "YCCC") == -3000.0
+
+
+def test_structure_report_agrees_with_structure_ok() -> None:
+    from vhirprimerlab.structure import structure_report
+
+    for primer in ("CACAGCTCTAGGATCAGAAAGAGT", "GAATTCGCGAATTCGCGAATTC", "AAAAATCRSC",
+                   "CACAGCTCTAGGRTCAGAAAGAGT"):
+        assert (structure_report(primer) == []) == structure_ok(primer), primer
+    assert any(p.startswith("self-dimer Tm") for p in structure_report("GAATTCGCGAATTCGCGAATTC"))
+    assert structure_report("AAAAATCRSC")[0] == "4 G/C in the last 5 bases (max 3)"

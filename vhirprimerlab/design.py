@@ -7,6 +7,8 @@ from typing import Any
 
 import primer3
 
+from vhirprimerlab.structure import MAX_END_GC
+
 from vhirprimerlab.models import (
     CandidatePair,
     Consensus,
@@ -39,6 +41,7 @@ def _global_args(params: DesignParams) -> dict[str, Any]:
         "PRIMER_PRODUCT_SIZE_RANGE": [[params.amplicon_min, params.amplicon_max]],
         "PRIMER_NUM_RETURN": params.candidates,
         "PRIMER_MAX_NS_ACCEPTED": 0,
+        "PRIMER_MAX_END_GC": MAX_END_GC,  # primer3's default (5) sets no limit
         "PRIMER_EXPLAIN_FLAG": 1,
     }
 

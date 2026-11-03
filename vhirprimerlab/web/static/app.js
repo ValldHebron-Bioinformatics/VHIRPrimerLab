@@ -11,6 +11,7 @@
     'finding primers': 'Finding candidate primers along the genome…',
     scoring: 'Checking primers against every sequence…',
     'choosing amplicons': 'Choosing the best set of amplicons…',
+    'checking primer dimers': 'Checking primer dimers…',
     writing: 'Writing the files…',
     done: 'Finishing…',
   };
@@ -24,7 +25,43 @@
     engine: null, handle: null, hasResults: false, lastJob: null };
 
   // ---------- mode ----------
-  const mode = () => (state.page === 'check' ? 'check' : $('use-regions').checked ? 'regions' : 'tile');
+  const advanced = () => document.querySelector('input[name="level"]:checked').value === 'advanced';
+  const mode = () => (state.page === 'check' ? 'check'
+    : advanced() && $('use-regions').checked ? 'regions' : 'tile');
+
+  // ---------- basic / advanced ----------
+  const LEVEL_KEY = 'vhirprimerlab.level';
+
+  function applyLevel() {
+    $('advanced').hidden = !advanced();
+    $('basic-note').hidden = advanced();
+    try { localStorage.setItem(LEVEL_KEY, advanced() ? 'advanced' : 'basic'); } catch (e) { /* private window */ }
+    drawRule();
+    applyMode();
+    updateHint();
+  }
+
+  // One box per base of a 20-base primer, 5' to 3'; the last N must match exactly.
+  function drawRule() {
+    const strip = $('rule-strip');
+    const mm = Math.max(0, Math.round(num('max_mismatches')) || 0);
+    const raw = Math.round(num('three_prime_window'));
+    const exact = Math.min(20, Math.max(1, raw || 1));
+    strip.textContent = '';
+    const end = (t) => { const e = document.createElement('span'); e.className = 'end'; e.textContent = t; return e; };
+    strip.append(end('5′'));
+    for (let i = 0; i < 20; i += 1) {
+      const b = document.createElement('span');
+      b.className = i >= 20 - exact ? 'b exact' : 'b';
+      strip.append(b);
+    }
+    strip.append(end('3′'));
+    const free = 20 - exact;
+    const where = free
+      ? `anywhere in the first ${free} bases of a 20-base primer`
+      : 'nowhere in a 20-base primer';
+    $('rule-text').textContent = `A primer binds a sequence when it has at most ${mm} mismatch${mm === 1 ? '' : 'es'}, ${where}. The last ${exact} base${exact === 1 ? '' : 's'} at the 3′ end (filled) must match exactly: the polymerase starts there.`;
+  }
 
   function applyMode() {
     const m = mode();
@@ -368,6 +405,13 @@
       facts.className = 'facts';
       facts.textContent = primerFacts(r, what);
       td.append(line, facts);
+      const problems = r[`${what}_structure`];
+      if (problems && problems !== 'ok') {
+        const warn = document.createElement('span');
+        warn.className = 'facts warn';
+        warn.textContent = problems;
+        td.append(warn);
+      }
     });
     return td;
   }
@@ -533,6 +577,14 @@
     renderDownloads(st, order);
   }
 
+  const DIMER_KCAL = -9; // the same limit as vhirprimerlab.structure.DIMER_DG
+
+  function checkNote(r) {
+    const dg = r.pair_dimer_dg === '' || r.pair_dimer_dg == null ? null : +r.pair_dimer_dg;
+    const dimer = dg !== null && dg < DIMER_KCAL ? `forward and reverse form a dimer (ΔG ${dg.toFixed(1).replace('-', '−')} kcal/mol)` : '';
+    return [r.note, dimer].filter(Boolean).join(' · ');
+  }
+
   function renderPairs(st, res, m) {
     const rows = res.rows;
     const G = res.reference_length || Math.max(1, ...rows.map((r) => +r.amplicon_end || 0));
@@ -571,7 +623,7 @@
       if (keyOf.has(r)) tr.dataset.index = keyOf.get(r);
       if (r.below_threshold === 'True') tr.className = 'low';
       tr.append(
-        leadCell(nameOf(r), m === 'check' ? r.note : `rank ${r.rank}`),
+        leadCell(nameOf(r), m === 'check' ? checkNote(r) : `rank ${r.rank}`),
         primerCell(r, nameOf(r)),
         cell(span(r), 'num pos'),
         cell(pct(r.coverage_pct), 'num cov'),
@@ -622,10 +674,99 @@
     showRetry();
   }
 
+  // ---------- primer files ----------
+  // Any line of name/forward/reverse (or name/sequence) separated by tabs, commas, semicolons or
+  // spaces becomes a tab-separated line; quotes from CSV files are dropped.
+  function primerTable(text) {
+    return `${text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      .map((l) => (l.startsWith('#') ? l : l.split(/[\t,;]|\s+/).map((f) => f.replace(/^"|"$/g, '').trim())
+        .filter(Boolean).join('\t'))).join('\n')}\n`;
+  }
+
+  async function inflate(bytes, method) {
+    if (method === 0) return bytes;
+    if (method !== 8 || typeof DecompressionStream === 'undefined') throw new Error('unsupported');
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  // The files inside a ZIP (an .xlsx is one), read from its central directory.
+  async function unzip(buffer) {
+    const v = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    let eocd = -1;
+    for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i -= 1) {
+      if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('not a zip');
+    const files = new Map();
+    let p = v.getUint32(eocd + 16, true);
+    const dec = new TextDecoder();
+    for (let n = v.getUint16(eocd + 10, true); n > 0; n -= 1) {
+      if (v.getUint32(p, true) !== 0x02014b50) throw new Error('bad zip');
+      const method = v.getUint16(p + 10, true);
+      const size = v.getUint32(p + 20, true);
+      const nameLen = v.getUint16(p + 28, true);
+      const skip = nameLen + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+      const local = v.getUint32(p + 42, true);
+      const name = dec.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+      const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+      files.set(name, () => inflate(bytes.subarray(start, start + size), method).then((b) => dec.decode(b)));
+      p += 46 + skip;
+    }
+    return files;
+  }
+
+  // Rows of the first worksheet of an .xlsx file, as tab-separated text.
+  async function xlsxToText(buffer) {
+    const files = await unzip(buffer);
+    const xml = async (name) => new DOMParser().parseFromString(await files.get(name)(), 'application/xml');
+    const tags = (doc, tag) => Array.from(doc.getElementsByTagNameNS('*', tag));
+    const shared = files.has('xl/sharedStrings.xml')
+      ? tags(await xml('xl/sharedStrings.xml'), 'si').map((si) => tags(si, 't').map((t) => t.textContent).join(''))
+      : [];
+    const book = await xml('xl/workbook.xml');
+    const id = tags(book, 'sheet')[0].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const rel = tags(await xml('xl/_rels/workbook.xml.rels'), 'Relationship').find((r) => r.getAttribute('Id') === id);
+    const target = rel.getAttribute('Target');
+    const sheet = await xml(target.startsWith('/') ? target.slice(1) : `xl/${target}`);
+    return tags(sheet, 'row').map((row) => tags(row, 'c').map((c) => {
+      const t = c.getAttribute('t');
+      const val = tags(c, 'v')[0];
+      if (t === 's' && val) return shared[+val.textContent] || '';
+      if (t === 'inlineStr') return tags(c, 't').map((x) => x.textContent).join('');
+      return val ? val.textContent : '';
+    }).join('\t')).join('\n');
+  }
+
+  function primersError(message) {
+    $('primers-error').textContent = message || '';
+    $('primers-error').hidden = !message;
+  }
+
+  async function readPrimersFile(file) {
+    primersError('');
+    if (!file) return;
+    if (/\.xls$/i.test(file.name)) {
+      primersError(`${file.name} is an old Excel file. Save it as .xlsx or CSV and load it again.`);
+      return;
+    }
+    try {
+      const buffer = await file.arrayBuffer();
+      const zip = new Uint8Array(buffer, 0, 2);
+      const text = zip[0] === 0x50 && zip[1] === 0x4b ? await xlsxToText(buffer) : new TextDecoder().decode(buffer);
+      $('primers').value = primerTable(text.replace(/^\uFEFF/, '')).trim();
+    } catch (e) {
+      primersError(`Could not read ${file.name}. Save it as .xlsx, CSV or TSV and load it again.`);
+    }
+    $('primers-file').value = '';
+  }
+
   // ---------- running a job ----------
   function settings(m) {
     const out = {};
     if (m === 'tile') out.amplicons = Math.round(num('amplicons'));
+    if (!advanced()) return out; // Basic: the recommended settings
     if (m === 'regions') {
       out.regions = $('regions').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       out.amplicon_min = num('amplicon_min');
@@ -669,10 +810,7 @@
       return;
     }
     let primers = '';
-    if (m === 'check') {
-      primers = `${$('primers').value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-        .map((l) => l.split(/\s+/).join('\t')).join('\n')}\n`;
-    }
+    if (m === 'check') primers = primerTable($('primers').value);
     if (state.engine.name === 'browser') {
       const bases = state.seqs.lens.reduce((a, b) => a + b, 0);
       if (bases > LARGE_INPUT && !window.confirm('This may take several minutes and use a lot of memory on your computer. For large sets, the command line is faster.\n\nRun it here anyway?')) return;
@@ -737,6 +875,9 @@
     });
   });
   $('use-regions').addEventListener('change', applyMode);
+  document.querySelectorAll('input[name="level"]').forEach((r) => r.addEventListener('change', applyLevel));
+  ['max_mismatches', 'three_prime_window'].forEach((id) => $(id).addEventListener('input', drawRule));
+  $('primers-file').addEventListener('change', (e) => readPrimersFile(e.target.files[0]));
   $('form').addEventListener('submit', submit);
   $('file').addEventListener('change', (e) => readFile(e.target.files[0]));
   $('clear').addEventListener('click', clearSeqs);
@@ -781,7 +922,10 @@
   }
 
   state.page = location.hash === '#check' ? 'check' : 'design';
-  applyMode();
+  try {
+    if (localStorage.getItem(LEVEL_KEY) === 'advanced') document.querySelector('input[name="level"][value="advanced"]').checked = true;
+  } catch (e) { /* private window */ }
+  applyLevel();
   $('run').disabled = true;
   window.VhirEngines.pickEngine().then(async (engine) => {
     state.engine = engine;

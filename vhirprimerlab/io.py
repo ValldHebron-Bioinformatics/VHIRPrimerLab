@@ -24,6 +24,7 @@ from vhirprimerlab.models import (
     TilingResult,
 )
 from vhirprimerlab.ranking import count_reasons
+from vhirprimerlab.structure import DIMER_DG
 
 PER_PRIMER_DEGENERACY = [
     "forward_degenerate_bases", "reverse_degenerate_bases", "forward_variants", "reverse_variants",
@@ -249,7 +250,8 @@ CHECK_TSV_COLUMNS = [
     "reverse_gc", "forward_len", "reverse_len", "degenerate", *PER_PRIMER_DEGENERACY,
     "forward_tm_range", "reverse_tm_range", "located", "forward_site_mismatches", "reverse_site_mismatches",
     "amplicon_start", "amplicon_end", "amplicon_len", "coverage_pct", "n_covered",
-    "n_total", "below_threshold", "not_covered", "note",
+    "n_total", "below_threshold", "not_covered", "forward_structure", "reverse_structure",
+    "pair_dimer_dg", "note",
 ]
 
 
@@ -292,6 +294,8 @@ def write_check_tsv(results: list[CheckResult], cmap: CoordMap, path: Path) -> N
                 f"{cov.coverage_pct:.1f}", len(cov.covered), len(cov.covered) + len(cov.not_covered),
                 res.below_threshold,
                 ",".join(f"{sid}({why})" for sid, why in cov.not_covered.items()),
+                "; ".join(res.fwd_structure) or "ok", "; ".join(res.rev_structure) or "ok",
+                "" if res.pair_dimer_dg is None else f"{res.pair_dimer_dg / 1000:.1f}",
                 _note(res, cmap),
             ])
 
@@ -316,6 +320,11 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
     else:
         lines.append(f"Not located: {res.note}")
     lines.append(f"Coverage: {cov.coverage_pct:.1f}% ({len(cov.covered)} of {n_total})")
+    for side, problems in (("Forward", res.fwd_structure), ("Reverse", res.rev_structure)):
+        lines.append(f"{side} structure: {'; '.join(problems) or 'ok'}")
+    if res.pair_dimer_dg is not None:
+        dimer = "forms a dimer" if res.pair_dimer_dg < DIMER_DG else "ok"
+        lines.append(f"Forward x reverse: ΔG {res.pair_dimer_dg / 1000:.1f} kcal/mol ({dimer})")
     note = _note(res, cmap)
     if res.located and note:
         lines.append(f"Note: {note}")
@@ -335,6 +344,9 @@ def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
         out.append(f"Pairs below --min-coverage ({report.min_coverage:g}%): " + ", ".join(low))
     else:
         out.append("Every pair meets --min-coverage.")
+    out += ["", "Dimers between pairs (if mixed in one tube)", "-------------------------------------------"]
+    out += [f"{a} x {b}: ΔG {dg / 1000:.1f} kcal/mol" for a, b, dg in report.dimers] or [
+        f"None below {DIMER_DG / 1000:g} kcal/mol."]
     out += ["", "Log", "---", *report.log_lines]
     Path(path).write_text("\n".join(out) + "\n")
 

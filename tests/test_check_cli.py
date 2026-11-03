@@ -103,3 +103,18 @@ def test_design_help_mentions_check(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--help"])
     assert exc.value.code == 0
     assert "vhirprimerlab check --help" in capsys.readouterr().out
+
+
+def test_check_reads_the_order_sheet(aln: Path, tmp_path: Path) -> None:
+    d, c = tmp_path / "design", tmp_path / "check"
+    main(["--aligned", str(aln), "-o", str(d), *DESIGN])
+    rank1 = _rank1(d)
+    main(["check", "--aligned", str(aln), "--primers", str(d / "primers.tsv"), "-o", str(c)])
+    checked = {r["name"]: r for r in read_tsv(c / "check.tsv")}
+    assert set(checked) == {"cons", "hv"}
+    for name in ("cons", "hv"):
+        assert checked[name]["forward_seq"] == rank1[name]["forward_seq"]
+        assert checked[name]["coverage_pct"] == rank1[name]["coverage_pct"]
+        assert checked[name]["forward_structure"]  # "ok" or what is wrong
+        assert float(checked[name]["pair_dimer_dg"]) < 0
+    assert "Dimers between pairs" in (c / "report.txt").read_text()

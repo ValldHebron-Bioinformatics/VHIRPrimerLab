@@ -137,7 +137,8 @@ assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it on
 
 Instead of tiling the whole genome you can design pairs inside chosen regions
 (`--region`, `--amplicon-min`, `--amplicon-max`), or check primers you already have
-(`vhirprimerlab check`).
+(`vhirprimerlab check`). Region pairs are picked by primer3 with the same 3′ rule as tiling: at
+most 3 G/C in the last 5 bases.
 
 ### Example
 
@@ -161,8 +162,9 @@ run, pairs from another tool) against your sequences, without designing new ones
 placed where it fits the consensus best, then the pair is scored on every sequence with exactly
 the same matching rules as design mode.
 
-List the pairs in a tab-separated file, written 5′→3′ as you would order them (IUPAC codes
-allowed; a header line, blank lines and `#` comments are optional):
+List the pairs in a TSV, CSV (comma or semicolon) or Excel `.xlsx` file (first sheet), written
+5′→3′ as you would order them (IUPAC codes allowed; a header row, blank rows and `#` comments are
+optional), one pair per row:
 
 ```
 name	forward	reverse
@@ -170,9 +172,21 @@ cons	CAGTCCCCTACGTCGCATATC	TAGTTGGGCGTCCTGAGAAAC
 hv	CTCCAGTGGMGGTCTTGGTKG	GCAYKCATCCMAGTAAGCACAC
 ```
 
+or one primer per row (`name, sequence`), like the `primers.tsv` order sheet that design mode
+writes. Names ending in `_LEFT`/`_RIGHT` (or `_F`/`_R`, `_FWD`/`_REV`, `_FORWARD`/`_REVERSE`) are
+joined into pairs, so `VHIRPrimerLab_3_LEFT` and `VHIRPrimerLab_3_RIGHT` become pair
+`VHIRPrimerLab_3`. You can check a design straight from its order sheet:
+
 ```bash
 vhirprimerlab check -i examples/family.fasta --primers assays.tsv -o out_check
+vhirprimerlab check -i examples/family.fasta --primers out/primers.tsv -o out_check
 ```
+
+Every primer is also checked for hairpins and self-dimers (every variant of a degenerate primer,
+Tm above 47 °C), for more than 3 G/C in its last 5 bases, and for dimers with its partner and
+with the primers of the other pairs (ΔG below −9 kcal/mol). These are warnings: they do not change
+coverage or the exit code. Dimers between different pairs only matter for pairs you mix in one
+tube, so they are listed in `report.txt` (the strongest also as warnings).
 
 It writes `alignment.fasta`, `report.txt` (one section per pair: each primer's length, Tm, GC % and degenerate bases,
 where it binds, and why it misses sequences)
@@ -181,7 +195,8 @@ forward_gc, reverse_gc, forward_len, reverse_len, degenerate, forward_degenerate
 reverse_degenerate_bases, forward_variants, reverse_variants, forward_tm_range,
 reverse_tm_range, located, forward_site_mismatches, reverse_site_mismatches, amplicon_start,
 amplicon_end, amplicon_len, coverage_pct, n_covered, n_total, below_threshold, not_covered,
-note`. On the example family the two pairs above give 100 % and 30 % coverage, as in the design
+forward_structure, reverse_structure, pair_dimer_dg, note` (`*_structure` is `ok` or what is
+wrong; `pair_dimer_dg` is forward × reverse in kcal/mol). On the example family the two pairs above give 100 % and 30 % coverage, as in the design
 run.
 
 A pair is reported as not located (0 % coverage, reason in `note`) when a primer fits two places

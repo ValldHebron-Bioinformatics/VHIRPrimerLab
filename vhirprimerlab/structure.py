@@ -44,6 +44,26 @@ def structure_ok(primer: str) -> bool:
     return True
 
 
+def structure_report(primer: str) -> list[str]:
+    """What structure_ok rejects, with the worst variant's value; empty when it passes."""
+    out: list[str] = []
+    n = end_gc(primer)
+    if n > MAX_END_GC:
+        out.append(f"{n} G/C in the last 5 bases (max {MAX_END_GC})")
+    vs = variants(primer)
+    worst = (
+        ("hairpin", max(primer3.calc_hairpin(v).tm for v in vs)),
+        ("self-dimer", max(primer3.calc_homodimer(v).tm for v in vs)),
+        ("dimer between its variants", max(
+            (primer3.calc_heterodimer(a, b).tm for i, a in enumerate(vs) for b in vs[i + 1:]),
+            default=float("-inf"),
+        )),
+    )
+    out += [f"{what} Tm {tm:.1f} °C (max {MAX_STRUCTURE_TM:g})" for what, tm in worst
+            if tm > MAX_STRUCTURE_TM]
+    return out
+
+
 def dimer_dg(a: str, b: str) -> float:
     """Lowest heterodimer ΔG (cal/mol) between any variant of a and any variant of b."""
     return min(primer3.calc_heterodimer(x, y).dg for x in variants(a) for y in variants(b))
