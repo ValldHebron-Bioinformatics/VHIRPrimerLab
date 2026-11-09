@@ -10,22 +10,28 @@ const SNAP_EDGE = 10;   // bp: a drag this close to a feature edge snaps to the 
 
 // The span a block must have so one amplicon holds two primers and a base of insert.
 // Mirrors the engine's single-amplicon rule after its length tolerance.
-export function smallestSpan(ampliconLen, overlap, primerLenMax = 25, tolerance = 0.20) {
+export function smallestSpan(primerLenMax = 25, tolerance = 0.20) {
   return Math.ceil((2 * primerLenMax + 1) / (1 - tolerance));
 }
 
 // `convert` maps a position on the annotation's record to the user's reference. Padding is
-// clamped to the reference, and a block shorter than `minSpan` is widened about its centre.
+// clamped to the reference. A block shorter than `minSpan` grows about its centre, and a side
+// that hits the reference's edge hands its share of the growth to the other side.
 export function blockFromFeature(feature, { convert, pad = PAD, endLoss = END_LOSS, minSpan = 0, limit }) {
   const a = convert(feature.start);
   const b = convert(feature.end);
   const margin = pad + endLoss;
   let start = Math.max(1, Math.min(a, b) - margin);
   let end = Math.min(limit, Math.max(a, b) + margin);
-  if (end - start + 1 < minSpan) {
-    const grow = minSpan - (end - start + 1);
-    start = Math.max(1, start - Math.ceil(grow / 2));
-    end = Math.min(limit, end + Math.floor(grow / 2));
+  const need = minSpan - (end - start + 1);
+  if (need > 0) {
+    const roomLeft = start - 1;
+    const roomRight = limit - end;
+    let growRight = Math.min(roomRight, Math.floor(need / 2));
+    let growLeft = Math.min(roomLeft, need - growRight);
+    growRight = Math.min(roomRight, need - growLeft);
+    start -= growLeft;
+    end += growRight;
   }
   return { name: feature.name, start, end };
 }
@@ -50,12 +56,18 @@ export function mergeBlocks(blocks) {
 // Same formula as amplicons_for() in vhirprimerlab/tiling.py, which is the other copy: keep
 // them in step. The contract is the ampliconCount test in tests/browser/blocks.test.mjs.
 export function ampliconCount(block, ampliconLen, overlap) {
+  if (ampliconLen <= overlap) throw new Error('ampliconLen must be larger than overlap');
   const span = block.end - block.start + 1;
   return Math.max(1, Math.ceil((span - overlap) / (ampliconLen - overlap)));
 }
 
-// A drag snaps to a feature edge when it is near one, and otherwise to the grid.
+// A drag snaps to the nearest feature edge within reach, and otherwise to the grid. It does not
+// clamp, so the caller must keep the result inside the reference.
 export function snapPosition(pos, edges, grid = 10) {
-  const near = edges.find((e) => Math.abs(pos - e) <= SNAP_EDGE);
-  return near !== undefined ? near : Math.round(pos / grid) * grid;
+  let best;
+  for (const e of edges) {
+    const d = Math.abs(pos - e);
+    if (d <= SNAP_EDGE && (best === undefined || d < Math.abs(pos - best))) best = e;
+  }
+  return best !== undefined ? best : Math.round(pos / grid) * grid;
 }
