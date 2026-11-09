@@ -92,3 +92,16 @@ def test_genes_mode_refuses_a_span_past_the_sequence(tmp_path: Path) -> None:
     fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
     with pytest.raises(ValueError, match="ends at 1,200"):
         prepare_job("genes", {"tile_regions": ["F:100-1200"]}, fasta, "", Limits(), ["mafft"])
+
+
+def test_genes_mode_caps_the_amplicon_count(tmp_path: Path) -> None:
+    fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
+    settings = {"tile_regions": ["F:1-1000"], "amplicon_len": 100, "overlap": 90}
+    with pytest.raises(ValueError, match=r"need about 91 amplicons.*up to 50"):
+        prepare_job("genes", settings, fasta, "", Limits(max_amplicons=50), ["mafft"])
+
+
+def test_genes_mode_reports_a_malformed_span(tmp_path: Path) -> None:
+    fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
+    with pytest.raises(ValueError):
+        prepare_job("genes", {"tile_regions": ["F:abc"]}, fasta, "", Limits(), ["mafft"])
