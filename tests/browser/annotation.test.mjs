@@ -3,14 +3,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, MAX_RECORD_LENGTH,
+  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, fetchRecordLength, MAX_RECORD_LENGTH,
 } from '../../vhirprimerlab/web/static/annotation.js';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 const hmpvXml = fixture('NC_039199.xml');
 const giardiaXml = fixture('parasite-gene.xml');
 const bigRecordXml = hmpvXml.replace('<INSDSeq_length>13350<', '<INSDSeq_length>600000<');
-const okFetch = (body) => async () => ({ ok: true, status: 200, text: async () => body });
+// A fetch that answers esummary with `slen` (or a 404 when undefined) and efetch with `efetch`.
+const route = (efetch, slen) => async (url) => {
+  if (url.includes('esummary')) {
+    if (slen === undefined) return { ok: false, status: 404 };
+    return { ok: true, status: 200, json: async () => ({ result: { uids: ['1'], 1: { slen } } }) };
+  }
+  return efetch(url);
+};
+const okFetch = (body, slen) => route(async () => ({ ok: true, status: 200, text: async () => body }), slen);
 const noWait = async () => {};
 
 test('a plain location', () => {
@@ -109,6 +117,24 @@ test('a GenBank file parses to the same shape', () => {
   assert.ok(a.features.every((x) => x.name));
 });
 
+test('a repeated, wrapped qualifier does not leak into the location', () => {
+  const gb = `LOCUS       X1    100 bp    DNA   linear   VRL 01-JAN-2000
+VERSION     X1.1
+  ORGANISM  test virus
+FEATURES             Location/Qualifiers
+     CDS             1..20
+                     /inference="first"
+                     /inference="second that wraps
+                     onto another line"
+                     /gene="W"
+ORIGIN
+//
+`;
+  const a = parseGenbank(gb);
+  assert.deepEqual(a.features[0].intervals, [[1, 20]]);
+  assert.equal(a.features[0].name, 'W');
+});
+
 test('a GenBank join that wraps onto a second line is read whole', () => {
   const gb = `LOCUS       X1    100 bp    DNA   linear   VRL 01-JAN-2000
 VERSION     X1.1
@@ -128,27 +154,63 @@ ORIGIN
 
 test('a record over the cap is refused', async () => {
   assert.equal(MAX_RECORD_LENGTH, 500_000);
-  await assert.rejects(fetchAnnotation('NC_000000.1', { fetch: okFetch(bigRecordXml) }),
+  await assert.rejects(fetchAnnotation('NC_000000.1', { fetch: okFetch(bigRecordXml), storage: null }),
     /500,?000.*gene record/s);
 });
 
-test('the request goes to efetch for the accession', async () => {
-  let url;
-  const fetch = async (u) => { url = u; return { ok: true, text: async () => hmpvXml }; };
-  await fetchAnnotation('NC_039199.1', { fetch });
-  assert.equal(url, 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
-    + '?db=nuccore&rettype=gbc&retmode=xml&id=NC_039199.1');
+test('esummary refuses an oversize record before any efetch', async () => {
+  const urls = [];
+  const fetch = route(async (u) => { urls.push(u); return { ok: true, text: async () => hmpvXml }; },
+    5_000_000);
+  await assert.rejects(fetchAnnotation('NC_000001.11', { fetch, storage: null }),
+    /5,000,000.*500,000.*gene record/s);
+  assert.deepEqual(urls, []);
 });
 
-test('a second request is served from the cache', async () => {
+test('an esummary that fails still lets efetch proceed to the backstop', async () => {
+  const fetch = route(async () => ({ ok: true, text: async () => bigRecordXml }), undefined);
+  await assert.rejects(fetchAnnotation('NC_000000.1', { fetch, storage: null }), /500,000/);
+  const throwing = async (u) => {
+    if (u.includes('esummary')) throw new Error('offline');
+    return { ok: true, text: async () => hmpvXml };
+  };
+  assert.ok(await fetchAnnotation('NC_039199.1', { fetch: throwing, storage: null }));
+});
+
+test('an esummary that omits the length is ignored', async () => {
+  const fetch = async (u) => (u.includes('esummary')
+    ? { ok: true, json: async () => ({ result: { uids: ['1'], 1: {} } }) }
+    : { ok: true, text: async () => hmpvXml });
+  assert.ok(await fetchAnnotation('NC_039199.1', { fetch, storage: null }));
+});
+
+test('the efetch request goes to the accession', async () => {
+  const urls = [];
+  const fetch = route(async (u) => { urls.push(u); return { ok: true, text: async () => hmpvXml }; });
+  await fetchAnnotation('NC_039199.1', { fetch, storage: null });
+  assert.deepEqual(urls, ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
+    + '?db=nuccore&rettype=gbc&retmode=xml&id=NC_039199.1']);
+});
+
+test('the esummary request asks for json', async () => {
+  let url;
+  const fetch = async (u) => { url = u; return { ok: true, json: async () => ({ result: { uids: ['7'], 7: { slen: 1453 } } }) }; };
+  assert.equal(await fetchRecordLength('M54878.1', { fetch }), 1453);
+  assert.equal(url, 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'
+    + '?db=nuccore&retmode=json&id=M54878.1');
+});
+
+test('a second request is served from the cache, whatever the accession case', async () => {
   const data = new Map();
   const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
   let calls = 0;
-  const fetch = async () => { calls++; return { ok: true, text: async () => hmpvXml }; };
-  const first = await fetchAnnotation('NC_039199.1', { fetch, storage });
+  const fetch = route(async () => { calls++; return { ok: true, text: async () => hmpvXml }; });
+  const first = await fetchAnnotation('nc_039199.1', { fetch, storage });
   const second = await fetchAnnotation('NC_039199.1', { fetch, storage });
   assert.equal(calls, 1);
   assert.deepEqual(second, first);
+  assert.equal(data.size, 1);
+  assert.ok([...data.keys()][0].endsWith('NC_039199.1'));
 });
 
 test('a corrupt cache entry is ignored', async () => {
@@ -165,26 +227,55 @@ test('storage that throws does not break the fetch', async () => {
 
 test('a 429 and a 503 are retried after 1 s and 3 s', async () => {
   const replies = [429, 503, 200];
-  const fetch = async () => {
+  const fetch = route(async () => {
     const status = replies.shift();
     return { ok: status === 200, status, text: async () => hmpvXml };
-  };
+  }, 13350);
   const waits = [];
-  const a = await fetchAnnotation('NC_039199.1', { fetch, wait: async (ms) => { waits.push(ms); } });
+  const a = await fetchAnnotation('NC_039199.1',
+    { fetch, storage: null, wait: async (ms) => { waits.push(ms); } });
   assert.equal(a.organism, 'human metapneumovirus');
   assert.deepEqual(waits, [1000, 3000]);
 });
 
 test('a persistent 500 gives up after two retries', async () => {
   let calls = 0;
-  const fetch = async () => { calls++; return { ok: false, status: 500, text: async () => '' }; };
-  await assert.rejects(fetchAnnotation('NC_039199.1', { fetch, wait: noWait }), /500/);
+  const fetch = route(async () => { calls++; return { ok: false, status: 500, text: async () => '' }; });
+  await assert.rejects(fetchAnnotation('NC_039199.1', { fetch, storage: null, wait: noWait }), /500/);
   assert.equal(calls, 3);
 });
 
 test('a 404 is not retried', async () => {
   let calls = 0;
-  const fetch = async () => { calls++; return { ok: false, status: 404, text: async () => '' }; };
-  await assert.rejects(fetchAnnotation('NC_000000.1', { fetch, wait: noWait }), /404/);
+  const fetch = route(async () => { calls++; return { ok: false, status: 404, text: async () => '' }; });
+  await assert.rejects(fetchAnnotation('NC_000000.1', { fetch, storage: null, wait: noWait }), /404/);
   assert.equal(calls, 1);
+});
+
+test('an unreadable location skips that feature and reports it', () => {
+  const xml = hmpvXml.replaceAll('<INSDFeature_location>3052..4671</INSDFeature_location>',
+    '<INSDFeature_location>garbage</INSDFeature_location>');
+  const a = parseInsdseq(xml);
+  assert.equal(a.skipped.length, 2);
+  assert.deepEqual(a.skipped[0], { kind: 'gene', location: 'garbage' });
+  assert.ok(!a.features.some((x) => x.name === 'F'));
+  assert.ok(a.features.some((x) => x.name === 'N'));
+  assert.deepEqual(parseInsdseq(hmpvXml).skipped, []);
+});
+
+test('a feature with no gene, locus_tag or product is named after its kind', () => {
+  const xml = giardiaXml.replace(/<INSDQualifier>\s*<INSDQualifier_name>product<\/INSDQualifier_name>[\s\S]*?<\/INSDQualifier>/, '');
+  assert.equal(parseInsdseq(xml).features[0].name, 'rRNA');
+});
+
+test('genes carry no product while their CDS siblings do', () => {
+  const { features } = parseInsdseq(hmpvXml);
+  assert.ok(features.filter((x) => x.kind === 'gene').every((x) => x.product === ''));
+  assert.ok(features.filter((x) => x.kind === 'CDS').every((x) => x.product !== ''));
+});
+
+test('numeric character references are decoded', () => {
+  const xml = giardiaXml.replace('16S-like ribosomal RNA</INSDQualifier_value>',
+    'beta &#946; &#x3b2; &amp;amp</INSDQualifier_value>');
+  assert.equal(parseInsdseq(xml).features[0].product, 'beta \u03b2 \u03b2 &amp');
 });

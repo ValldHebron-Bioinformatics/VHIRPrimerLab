@@ -4,8 +4,9 @@
 
 export const MAX_RECORD_LENGTH = 500_000;
 
-const EFETCH = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi';
-const CACHE_PREFIX = 'vhirprimerlab.annotation.';
+const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+// The version is part of the key so a change to the kept kinds cannot be masked by old entries.
+const CACHE_PREFIX = 'vhirprimerlab.annotation.v2.';
 const RETRY_WAITS = [1000, 3000];   // ms before the first and second retry
 
 // What a user can click to ask for primers. rRNA and the other RNAs are here because a
@@ -54,6 +55,8 @@ function parseExpr(text, whole) {
   return { strand: '+', intervals: [[start, end]] };
 }
 
+// A join that wraps the origin of a circular record, such as join(1000..1200,1..50), is read as
+// plain intervals: its span is 1..1200, not the 1000..50 it covers on the molecule.
 export function parseLocation(text) {
   const loc = parseExpr(String(text), text);
   loc.intervals.sort((a, b) => a[0] - b[0]);
@@ -62,17 +65,21 @@ export function parseLocation(text) {
 
 // ---- features ---------------------------------------------------------------------------
 
-// raw: [{ key, location, quals: { name: value } }] in record order.
+// raw: [{ key, location, quals: { name: value } }] in record order. A feature whose location
+// cannot be read is skipped and reported, so one odd feature does not lose the whole record.
 function buildFeatures(raw) {
   const features = [];
+  const skipped = [];
   for (const { key, location, quals } of raw) {
     if (!KEPT_KINDS.has(key)) continue;
-    const { strand, intervals } = parseLocation(location);
+    let loc;
+    try { loc = parseLocation(location); } catch { skipped.push({ kind: key, location }); continue; }
+    const { strand, intervals } = loc;
     const product = quals.product || '';
     features.push({
       kind: key,
       // Not every record names its genes: a marker locus has only a product.
-      name: quals.gene || quals.locus_tag || product,
+      name: quals.gene || quals.locus_tag || product || key,
       product,
       strand,
       intervals,
@@ -80,39 +87,16 @@ function buildFeatures(raw) {
       end: Math.max(...intervals.map((iv) => iv[1])),
     });
   }
-  return features;
+  return { features, skipped };
 }
 
 const ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
-const unescapeXml = (s) => s.replace(/&(lt|gt|quot|apos|amp);/g, (_, e) => ENTITIES[e]);
+const unescapeXml = (s) => s.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(lt|gt|quot|apos|amp));/g,
+  (_, dec, hex, name) => (name ? ENTITIES[name] : String.fromCodePoint(dec ? +dec : parseInt(hex, 16))));
 
-function insdRawDom(xmlText) {
-  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
-  const seq = doc.getElementsByTagName('INSDSeq')[0];
-  if (!seq) return null;
-  const text = (tag) => (seq.getElementsByTagName(tag)[0]?.textContent ?? '').trim();
-  const raw = [...seq.getElementsByTagName('INSDFeature')].map((f) => {
-    const quals = {};
-    for (const q of f.getElementsByTagName('INSDQualifier')) {
-      const name = q.getElementsByTagName('INSDQualifier_name')[0]?.textContent;
-      const value = q.getElementsByTagName('INSDQualifier_value')[0]?.textContent;
-      if (name && !(name in quals)) quals[name] = (value ?? '').trim();
-    }
-    return {
-      key: f.getElementsByTagName('INSDFeature_key')[0]?.textContent.trim(),
-      location: f.getElementsByTagName('INSDFeature_location')[0]?.textContent.trim() ?? '',
-      quals,
-    };
-  });
-  return {
-    accession: text('INSDSeq_accession-version'), organism: text('INSDSeq_organism'),
-    length: Number(text('INSDSeq_length')), raw,
-  };
-}
-
-// Node has no DOMParser, and the tests should not need a DOM library. NCBI's XML is regular
-// enough (no attributes, no nesting of the tags read here) for a small reader.
-function insdRawRegex(xmlText) {
+// One reader for the page, a worker and Node, so none depends on DOMParser. NCBI's
+// XML is machine-generated and regular (no attributes, no nesting of the tags read here).
+function insdRaw(xmlText) {
   if (!/<INSDSeq>/.test(xmlText)) return null;
   const one = (src, tag) => {
     const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(src);
@@ -123,7 +107,7 @@ function insdRawRegex(xmlText) {
     const quals = {};
     const qualRe = /<INSDQualifier_name>([\s\S]*?)<\/INSDQualifier_name>(?:\s*<INSDQualifier_value>([\s\S]*?)<\/INSDQualifier_value>)?/g;
     for (const [, name, value] of body.matchAll(qualRe)) {
-      if (!(name in quals)) quals[name] = unescapeXml(value ?? '').trim();
+      if (!Object.hasOwn(quals, name)) quals[name] = unescapeXml(value ?? '').trim();
     }
     raw.push({ key: one(body, 'INSDFeature_key'), location: one(body, 'INSDFeature_location'), quals });
   }
@@ -137,11 +121,10 @@ function insdRawRegex(xmlText) {
 }
 
 export function parseInsdseq(xmlText) {
-  const rec = typeof DOMParser === 'function' ? insdRawDom(xmlText) : insdRawRegex(xmlText);
+  const rec = insdRaw(xmlText);
   if (!rec) throw new Error('NCBI returned no sequence record (is the accession right?)');
   return {
-    accession: rec.accession, organism: rec.organism, length: rec.length,
-    features: buildFeatures(rec.raw),
+    accession: rec.accession, organism: rec.organism, length: rec.length, ...buildFeatures(rec.raw),
   };
 }
 
@@ -154,6 +137,7 @@ export function parseGenbank(text) {
   let inFeatures = false;
   let feature = null;
   let qual = null;      // the qualifier being continued, if any
+  let skipping = false; // inside a repeated qualifier, whose wrapped lines are dropped
 
   for (const line of lines) {
     if (!inFeatures) {
@@ -170,21 +154,23 @@ export function parseGenbank(text) {
       feature = { key: m[1], location: m[2], quals: {} };
       raw.push(feature);
       qual = null;
+      skipping = false;
     } else if (feature && (m = /^ {21}\/([\w-]+)(?:=(.*?))?\s*$/.exec(line))) {
       qual = m[1];
-      if (!(qual in feature.quals)) feature.quals[qual] = m[2] ?? '';
-      else qual = null;                              // keep the first of a repeated qualifier
+      skipping = Object.hasOwn(feature.quals, qual);  // keep the first of a repeated qualifier
+      if (skipping) qual = null;
+      else feature.quals[qual] = m[2] ?? '';
     } else if (feature && (m = /^ {21}(\S.*?)\s*$/.exec(line))) {
       // A long location (join) or a long qualifier value wraps onto the next line.
       if (qual) feature.quals[qual] += ` ${m[1]}`;
-      else feature.location += m[1];
+      else if (!skipping) feature.location += m[1];
     }
   }
   for (const f of raw) {
     for (const k of Object.keys(f.quals)) f.quals[k] = f.quals[k].replace(/^"|"$/g, '').trim();
   }
   if (!accession && !raw.length) throw new Error('This does not look like a GenBank file');
-  return { accession, organism, length, features: buildFeatures(raw) };
+  return { accession, organism, length, ...buildFeatures(raw) };
 }
 
 // ---- fetching ---------------------------------------------------------------------------
@@ -206,30 +192,51 @@ function writeCache(storage, key, annotation) {
   try { storage?.setItem(key, JSON.stringify(annotation)); } catch { /* the cache is optional */ }
 }
 
+const tooLong = (accession, length) => new Error(
+  `${accession} is ${length.toLocaleString('en-US')} nt, over the `
+  + `${MAX_RECORD_LENGTH.toLocaleString('en-US')} nt limit. Use a gene record instead of a chromosome.`);
+
+// GET with the two retries on a 429 or a 5xx; returns the last response whatever its status.
+async function getWithRetry(fetch, url, wait) {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url);
+    const retryable = response.status === 429 || response.status >= 500;
+    if (response.ok || !retryable || attempt >= RETRY_WAITS.length) return response;
+    await wait(RETRY_WAITS[attempt]);
+  }
+}
+
+// The length of a record, from the small esummary reply, so a chromosome is refused before its
+// sequence is downloaded. null when NCBI cannot say; the caller then relies on its own checks.
+export async function fetchRecordLength(accession, { fetch = globalThis.fetch, wait = sleep } = {}) {
+  try {
+    const url = `${EUTILS}/esummary.fcgi?db=nuccore&retmode=json&id=${encodeURIComponent(accession)}`;
+    const response = await getWithRetry(fetch, url, wait);
+    if (!response.ok) return null;
+    const { result } = await response.json();
+    const length = Number(result?.[result.uids?.[0]]?.slen);
+    return Number.isFinite(length) && length > 0 ? length : null;
+  } catch { return null; }
+}
+
 // `wait` exists so the tests need not sit through the backoff.
 export async function fetchAnnotation(accession, {
   fetch = globalThis.fetch, storage = defaultStorage(), wait = sleep,
 } = {}) {
-  const key = CACHE_PREFIX + accession;
+  const key = CACHE_PREFIX + accession.toUpperCase();
   const cached = readCache(storage, key);
   if (cached) return cached;
 
-  const url = `${EFETCH}?db=nuccore&rettype=gbc&retmode=xml&id=${encodeURIComponent(accession)}`;
-  let response;
-  for (let attempt = 0; ; attempt++) {
-    response = await fetch(url);
-    const retryable = response.status === 429 || response.status >= 500;
-    if (response.ok || !retryable || attempt >= RETRY_WAITS.length) break;
-    await wait(RETRY_WAITS[attempt]);
-  }
+  const known = await fetchRecordLength(accession, { fetch, wait });
+  if (known > MAX_RECORD_LENGTH) throw tooLong(accession, known);
+
+  const url = `${EUTILS}/efetch.fcgi?db=nuccore&rettype=gbc&retmode=xml&id=${encodeURIComponent(accession)}`;
+  const response = await getWithRetry(fetch, url, wait);
   if (!response.ok) throw new Error(`NCBI answered ${response.status} for ${accession}`);
 
   const annotation = parseInsdseq(await response.text());
-  if (annotation.length > MAX_RECORD_LENGTH) {
-    throw new Error(`${accession} is ${annotation.length.toLocaleString('en-US')} nt, over the `
-      + `${MAX_RECORD_LENGTH.toLocaleString('en-US')} nt limit. Use a gene record `
-      + 'instead of a chromosome.');
-  }
+  // Backstop for when esummary was unavailable or left the length out.
+  if (annotation.length > MAX_RECORD_LENGTH) throw tooLong(accession, annotation.length);
   writeCache(storage, key, annotation);
   return annotation;
 }
