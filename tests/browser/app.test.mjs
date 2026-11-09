@@ -1,8 +1,10 @@
-// node --test tests/browser/settings.test.mjs
-// settings() builds the payload a run is started with. It lives inside app.js's IIFE, where the
-// page's DOM is its closure, so rather than fake a browser the test lifts the function's own
-// source out of app.js and runs it against stubs. What is pinned is then the real code, including
-// which branch returns before which: the Basic early return is the whole point of these tests.
+// node --test tests/browser/app.test.mjs
+// The decisions app.js makes before anything is drawn or sent: the payload a run is started with,
+// whether the two block controls can tile the spans, and which features can be placed at all.
+// They live inside app.js's IIFE, where the page's DOM is their closure, so rather than fake a
+// browser each test lifts the function's own source out of app.js and runs it against stubs. What
+// is pinned is then the real code, including which branch returns before which: the Basic early
+// return is the whole point of the first tests below.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -151,4 +153,29 @@ test('an amplicon no longer than the overlap is still refused first', () => {
 test('a span too short for one amplicon says so, instead of an amplicon length', () => {
   assert.match(buildProblem({ blocks: [{ name: 'tiny', start: 1, end: 40 }] })(400, 0),
     /^tiny is only 40 bp: too short for one amplicon with primers of up to 25 bases\.$/);
+});
+
+// ---- which features the diagram lets the user click ----------------------------------------
+
+const unplaced = new Function(`${lift('unplaced')}; return unplaced;`)();
+const feature = (start, end) => ({ name: 'F', start, end });
+
+test('with no shared anchor at all, every feature is refused', () => {
+  // buildAnchorMap's convert() is the identity when it found nothing, so a span would hand the
+  // engine the record's own coordinates relabelled as the user's: there is no reading of that.
+  const none = { count: 0, mappedRange: [0, 0] };
+  assert.match(unplaced(feature(1, 1000), none, true, 13232), /share no exact sequence/);
+  assert.match(unplaced(feature(10000, 10700), none, true, 13232), /share no exact sequence/);
+});
+
+test('a few anchors still place the features they cover', () => {
+  // A user who sequenced one gene and loaded the whole-genome record has perfect anchors over
+  // the only region they care about: the map is untrusted, not absent, and is not refused.
+  const few = { count: 4, mappedRange: [3000, 4800] };
+  assert.equal(unplaced(feature(3052, 4671), few, true, 13232), '');
+  assert.equal(unplaced(feature(1, 1185), few, true, 13232), '');       // the record's own ruler
+  assert.match(unplaced(feature(1, 14000), few, true, 13232), /past the end of your reference/);
+  // Under a trusted map it is the part of the record the anchors do not reach that is refused.
+  assert.equal(unplaced(feature(3052, 4671), few, false, 13232), '');
+  assert.match(unplaced(feature(1, 1185), few, false, 13232), /outside the part of the record/);
 });

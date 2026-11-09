@@ -387,6 +387,11 @@ import {
   // past the end of the reference: the spans are clamped to the reference, so such a feature
   // would come out as a short span at the reference's end, unrelated to what was clicked.
   function unplaced(f, map, record, refLen) {
+    // Without a single shared k-mer there is nothing to place anything on: convert() is then the
+    // identity, so a span would hand the engine the record's own coordinates relabelled as the
+    // user's, and no reading of it would be honest. Refused at exactly zero: a handful of anchors
+    // over one gene is a poor map of the record but a true one of that gene.
+    if (!map.count) return 'this record and your sequences share no exact sequence';
     if (record) return f.end > refLen ? 'past the end of your reference' : '';
     return f.end < map.mappedRange[0] || f.start > map.mappedRange[1]
       ? 'outside the part of the record your sequences cover' : '';
@@ -740,6 +745,14 @@ import {
       notes.push('Your sequences and this record share too little exact sequence to place the genes '
         + 'on your reference, so the ruler below shows the record’s own positions and the spans '
         + 'follow them. Check them before you run, or pick another organism.');
+    }
+    // Zero anchors is not a weak map, it is no map: say so and leave the user the two ways on.
+    // The diagram stays, because it still shows what the record holds, and the whole-genome
+    // shortcut stays correct, because it needs no map.
+    if (!g.map.count) {
+      notes.push('They share no exact sequence at all, so no feature here can be placed on your '
+        + 'reference and none can be clicked. Pick the organism your sequences really come from, '
+        + 'load its GenBank file, or cover the whole genome instead, which needs no map.');
     }
     if (ann.skipped.length) {
       const kinds = [...new Set(ann.skipped.map((s) => s.kind))].join(', ');
