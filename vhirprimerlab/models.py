@@ -294,6 +294,11 @@ class PrimerCandidate:
         return self.start + self.length - 1
 
 
+def primer_names(name: str) -> tuple[str, str]:
+    """Left and right primer names of an amplicon pair name."""
+    return f"{name}_LEFT", f"{name}_RIGHT"
+
+
 @dataclass
 class Amplicon:
     index: int  # 1-based

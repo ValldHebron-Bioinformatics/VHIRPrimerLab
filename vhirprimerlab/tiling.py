@@ -25,6 +25,7 @@ from vhirprimerlab.models import (
     PrimerCandidate,
     TilingParams,
     TilingResult,
+    primer_names,
 )
 from vhirprimerlab.scoring import score_pair
 from vhirprimerlab.structure import DIMER_DG, dimer_dg
@@ -201,10 +202,6 @@ def _pair_name(index: int) -> str:
     return f"VHIRPrimerLab_{index}"
 
 
-def _primer_names(name: str) -> tuple[str, str]:
-    return f"{name}_LEFT", f"{name}_RIGHT"
-
-
 Key = tuple[str, int, int]  # (strand, start, length) identifies a candidate primer
 
 
@@ -212,18 +209,20 @@ def _key(c: PrimerCandidate) -> Key:
     return c.strand, c.start, c.length
 
 
-def _dimer_pairs(path: Path_) -> list[tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
+def _dimer_pairs(path: Path_, names: list[str]) -> list[
+        tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
     """Primer pairs in one pool whose worst variant pair has ΔG below DIMER_DG.
 
-    Amplicon k (1-based) is in pool 1 when k is odd, pool 2 when even. Every variant
-    of a degenerate primer is checked against every variant of the other primer.
+    Amplicon k (1-based) is in pool 1 when k is odd, pool 2 when even, and is named
+    names[k - 1]. Every variant of a degenerate primer is checked against every
+    variant of the other primer.
     """
     found = []
     for pool in (1, 2):
         oligos: list[tuple[str, PrimerCandidate]] = []
-        for k, (f, r) in enumerate(path, start=1):
+        for k, ((f, r), name) in enumerate(zip(path, names), start=1):
             if (1 if k % 2 else 2) == pool:
-                left, right = _primer_names(_pair_name(k))
+                left, right = primer_names(name)
                 oligos += [(left, f), (right, r)]
         for i, (name_a, a) in enumerate(oligos):
             for name_b, b in oligos[i + 1:]:
@@ -233,9 +232,9 @@ def _dimer_pairs(path: Path_) -> list[tuple[int, str, str, float, PrimerCandidat
     return found
 
 
-def _dimers(path: Path_) -> list[str]:
+def _dimers(path: Path_, names: list[str]) -> list[str]:
     return [f"pool {pool}: {na} × {nb} ΔG {dg / 1000:.1f} kcal/mol"
-            for pool, na, nb, dg, _, _ in _dimer_pairs(path)]
+            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names)]
 
 
 def _worst_coverage(path: Path_) -> int:
@@ -253,7 +252,7 @@ def _choose_any(fwds, revs, n, geoms, params, span, banned: set[Key]):
     return None, geoms[-1]
 
 
-def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, span):
+def _avoid_dimers(path: Path_, names: list[str], geom: Geometry, fwds, revs, n, geoms, params, span):
     """Swap out primers that form dimers within a pool, when that costs no coverage.
 
     For the first dimer pair not yet given up on, the tiling is chosen again without
@@ -263,7 +262,7 @@ def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, spa
     """
     banned: set[Key] = set()
     kept: set[tuple[Key, Key]] = set()
-    pairs = _dimer_pairs(path)
+    pairs = _dimer_pairs(path, names)
     swaps = 0
     while swaps < MAX_DIMER_SWAPS:
         todo = [p for p in pairs if (_key(p[4]), _key(p[5])) not in kept]
@@ -280,7 +279,7 @@ def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, spa
                                             banned | {_key(c)})
             if trial is None or _worst_coverage(trial) < _worst_coverage(path):
                 continue
-            trial_pairs = _dimer_pairs(trial)
+            trial_pairs = _dimer_pairs(trial, names)
             if len(trial_pairs) < len(pairs):
                 banned.add(_key(c))
                 path, geom, pairs = trial, trial_geom, trial_pairs
@@ -378,8 +377,9 @@ def tile(
     path, geom = _choose_any(fwds, revs, n, geoms, params, span, set())
     if not path:
         raise _no_fit(fwds, revs, n, span, params, cons, cmap)
+    names = [_pair_name(k) for k in range(1, len(path) + 1)]
     report("checking primer dimers", 0.90)
-    path, geom = _avoid_dimers(path, geom, fwds, revs, n, geoms, params, span)
+    path, geom = _avoid_dimers(path, names, geom, fwds, revs, n, geoms, params, span)
     if geom.tolerance != TOLERANCES[0]:
         log.warning("Used ±%d %% amplicon length tolerance (no tiling within ±%d %%)",
                     round(geom.tolerance * 100), round(TOLERANCES[0] * 100))
@@ -389,7 +389,7 @@ def tile(
         cov = score_pair(f.site, f.cols, r.site, r.cols, aln, params.scoring)
         nxt = path[k][0] if k < len(path) else None
         amplicons.append(Amplicon(
-            index=k, name=_pair_name(k), pool=1 if k % 2 else 2, fwd=f, rev=r, coverage=cov,
+            index=k, name=names[k - 1], pool=1 if k % 2 else 2, fwd=f, rev=r, coverage=cov,
             below_threshold=cov.coverage_pct < params.min_coverage,
             overlap_next=None if nxt is None else r.start - nxt.end - 1,
         ))
@@ -400,4 +400,4 @@ def tile(
     span_last = cmap.ref_length if span[1] == len(cons.seq) - 1 else _ref(cmap, cons, span[1], "end")
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
-    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path), ends)
+    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends)

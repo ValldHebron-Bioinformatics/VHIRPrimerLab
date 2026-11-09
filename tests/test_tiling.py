@@ -10,7 +10,7 @@ from vhirprimerlab import structure, tiling
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import alignment_from_records
-from vhirprimerlab.models import PipelineError, PrimerCandidate, Record, TilingParams
+from vhirprimerlab.models import PipelineError, PrimerCandidate, Record, TilingParams, primer_names
 from vhirprimerlab.tiling import choose, geometry, tile
 
 PARAMS = TilingParams(
@@ -183,6 +183,18 @@ def test_dimer_warning_format(family, monkeypatch) -> None:
     assert "-12.0 kcal/mol" in res.dimer_warnings[0]
 
 
+def test_dimer_warning_quotes_the_amplicon_names(family, monkeypatch) -> None:
+    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
+                        lambda a, b: SimpleNamespace(dg=-12000.0, tm=0.0))
+    monkeypatch.setattr(tiling, "_pair_name", lambda k: f"GENE_{k}")
+    res = tile(*family, PARAMS)
+    assert res.amplicons[0].name == "GENE_1"
+    assert res.dimer_warnings[0].startswith("pool 1: GENE_1_LEFT × GENE_1_RIGHT ")
+    known = {p for a in res.amplicons for p in primer_names(a.name)}
+    for w in res.dimer_warnings:
+        assert set(w.split(": ", 1)[1].split(" ΔG")[0].split(" × ")) <= known
+
+
 def test_choose_prefers_reaching_the_ends() -> None:
     geom = geometry(1000, 1, 50, 0.20, 25)  # one amplicon, end slack 250
     import dataclasses
@@ -229,6 +241,9 @@ def _dimer_setup(alt_bits: int):
     return geom, [bad, alt], [rev]
 
 
+NAMES = ["VHIRPrimerLab_1"]
+
+
 def _c_sticks(a: str, b: str) -> float:
     return -12000.0 if "C" in a + b else -3000.0
 
@@ -238,10 +253,10 @@ def test_avoid_dimers_swaps_out_a_dimer_primer(monkeypatch) -> None:
     geom, fwds, revs = _dimer_setup(alt_bits=10)
     params = _params(n_amplicons=1, max_start_loss=150)  # the alternative starts at 100
     path, g = tiling._choose_any(fwds, revs, 1, [geom], params, (0, 999), set())
-    assert path[0][0].start == 0 and tiling._dimers(path)
-    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, (0, 999))
+    assert path[0][0].start == 0 and tiling._dimers(path, NAMES)
+    path, g = tiling._avoid_dimers(path, NAMES, g, fwds, revs, 1, [geom], params, (0, 999))
     assert path[0][0].start == 100
-    assert tiling._dimers(path) == []
+    assert tiling._dimers(path, NAMES) == []
 
 
 def test_avoid_dimers_keeps_pair_when_swap_loses_coverage(monkeypatch) -> None:
@@ -249,9 +264,10 @@ def test_avoid_dimers_keeps_pair_when_swap_loses_coverage(monkeypatch) -> None:
     geom, fwds, revs = _dimer_setup(alt_bits=6)  # the alternative covers fewer sequences
     params = _params(n_amplicons=1)
     path, g = tiling._choose_any(fwds, revs, 1, [geom], params, (0, 999), set())
-    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, (0, 999))
+    path, g = tiling._avoid_dimers(path, NAMES, g, fwds, revs, 1, [geom], params, (0, 999))
     assert path[0][0].start == 0
-    assert tiling._dimers(path) == ["pool 1: VHIRPrimerLab_1_LEFT × VHIRPrimerLab_1_RIGHT ΔG -12.0 kcal/mol"]
+    assert tiling._dimers(path, NAMES) == [
+        "pool 1: VHIRPrimerLab_1_LEFT × VHIRPrimerLab_1_RIGHT ΔG -12.0 kcal/mol"]
 
 
 def test_tile_within_a_span_stays_inside_it(family) -> None:

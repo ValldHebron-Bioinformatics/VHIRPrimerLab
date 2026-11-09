@@ -22,6 +22,7 @@ from vhirprimerlab.models import (
     RunReport,
     TilingReport,
     TilingResult,
+    primer_names,
 )
 from vhirprimerlab.ranking import count_reasons
 from vhirprimerlab.structure import DIMER_DG
@@ -360,10 +361,6 @@ TILING_TSV_COLUMNS = [
 ]
 
 
-def _names(name: str) -> tuple[str, str]:
-    return f"{name}_LEFT", f"{name}_RIGHT"
-
-
 def _span(first_col: int, last_col: int, cmap: CoordMap) -> tuple[int, int] | None:
     """1-based inclusive reference span of alignment columns, or None if off the reference."""
     try:
@@ -377,7 +374,7 @@ def tiling_order(result: TilingResult) -> list[tuple[str, str]]:
     """Both primers of every amplicon, in genome order."""
     out: list[tuple[str, str]] = []
     for a in result.amplicons:
-        left, right = _names(a.name)
+        left, right = primer_names(a.name)
         out += [(left, a.fwd.seq), (right, a.rev.seq)]
     return out
 
@@ -388,7 +385,7 @@ def write_tiling_tsv(result: TilingResult, cmap: CoordMap, path: Path) -> None:
         writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
         writer.writerow(TILING_TSV_COLUMNS)
         for a in result.amplicons:
-            left, right = _names(a.name)
+            left, right = primer_names(a.name)
             span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
             cov = a.coverage
             writer.writerow([
@@ -410,7 +407,7 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
     """ARTIC-style primer scheme: chrom, start, end (0-based half-open), name, pool, strand, seq."""
     lines: list[str] = []
     for a in result.amplicons:
-        for name, primer, strand in zip(_names(a.name), (a.fwd, a.rev), "+-"):
+        for name, primer, strand in zip(primer_names(a.name), (a.fwd, a.rev), "+-"):
             span = _span(primer.cols[0], primer.cols[-1], cmap)
             if span is None:
                 log.warning("Primer %s is not on reference %s; left out of scheme.bed",
@@ -436,7 +433,7 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
         span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
         where = f"{span[0]}-{span[1]}  {span[1] - span[0] + 1} bp" if span else "not on reference"
         out.append(f"  {a.index} pool {a.pool}  {where}  {a.coverage.coverage_pct:.1f} %")
-        left, right = _names(a.name)
+        left, right = primer_names(a.name)
         out += [f"    {left}   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}",
                 f"    {right}  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}"]
         if a.below_threshold:
