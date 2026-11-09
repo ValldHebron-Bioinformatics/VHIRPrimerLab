@@ -81,6 +81,14 @@
           <p class="error" id="organism-error" role="alert" hidden></p>
         </fieldset>
 
+        <!-- Outside the advanced panel: on the genes page the reference is what every coordinate
+             on the diagram means, so it is reachable in Basic there (see applyMode). -->
+        <div class="field" id="reference-field" data-modes="tile regions check genes">
+          <label for="reference_id">Reference sequence</label>
+          <select id="reference_id" name="reference_id" data-setting="reference_id"><option value="">First sequence</option></select>
+          <p class="help" id="reference-help">Positions in the results, and the genes on the diagram, are read off this sequence. It must not be a length outlier: the run drops those and would then use another sequence.</p>
+        </div>
+
         <div class="field" data-modes="tile">
           <label for="amplicons">Number of amplicons</label>
           <input type="number" id="amplicons" name="amplicons" autocomplete="off" value="10" min="1" max="200" inputmode="numeric" aria-describedby="amp-hint">
@@ -143,7 +151,6 @@
               <div class="field" data-modes="tile regions check genes"><label for="min_coverage">Coverage target (%)</label><input type="number" id="min_coverage" name="min_coverage" autocomplete="off" data-setting="min_coverage" value="95" min="0" max="100"></div>
               <div class="field" data-modes="tile regions genes"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
               <div class="field" data-modes="tile regions check genes"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
-              <div class="field" data-modes="tile regions check genes"><label for="reference_id">Reference sequence</label><select id="reference_id" name="reference_id" data-setting="reference_id"><option value="">First sequence</option></select></div>
             </div>
             <label class="check" data-modes="tile"><input type="checkbox" id="degenerate" checked> Allow degenerate bases (IUPAC) where they rescue sequences</label>
             <label class="check" data-modes="regions"><input type="checkbox" id="allow_degenerate"> Allow degenerate bases (IUPAC) where they rescue sequences</label>

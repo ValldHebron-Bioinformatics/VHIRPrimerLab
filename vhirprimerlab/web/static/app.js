@@ -100,6 +100,10 @@ import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPo
       if (a.dataset.mode === state.page) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
+    // The reference decides what every position on the genes diagram and in every span means, and
+    // a user whose first sequence is a length outlier has to be able to choose another one, so
+    // that page keeps the picker in Basic. Elsewhere it stays an advanced setting.
+    $('reference-field').hidden = !(advanced() || m === 'genes');
     const copy = COPY[m] || COPY.tile;   // regions is the design page with its own fields
     $('title').textContent = copy.title;
     $('lede').textContent = copy.lede;
@@ -1402,6 +1406,13 @@ import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPo
       // the padding and refuses a perfectly good one that sits before the feature itself.
       out.max_start_loss = PADDING;
       out.max_end_loss = PADDING;
+      // The diagram and every span above were read off this reference. The engine's own default is
+      // the first sequence left after length filtering, which is another one as soon as the first
+      // is a length outlier, so the run has to be told which sequence the spans belong to: without
+      // this the engine would read the same numbers in a different genome. It is set before the
+      // Basic early return because the reference is not an advanced setting here, it is what the
+      // coordinates mean.
+      out.reference_id = $('reference_id').value || (state.seqs ? state.seqs.ids[0] : '');
     }
     if (!advanced()) return out; // Basic: the recommended settings
     if (m === 'regions') {
