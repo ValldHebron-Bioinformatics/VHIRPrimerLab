@@ -5,8 +5,9 @@
 export const MAX_RECORD_LENGTH = 500_000;
 
 const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
-// The version is part of the key so a change to the kept kinds cannot be masked by old entries.
-const CACHE_PREFIX = 'vhirprimerlab.annotation.v2.';
+// The version is part of the key so a change to what is kept of a record (the kinds, the
+// sequence) cannot be masked by old entries.
+const CACHE_PREFIX = 'vhirprimerlab.annotation.v3.';
 const RETRY_WAITS = [1000, 3000];   // ms before the first and second retry
 
 // What a user can click to ask for primers. rRNA and the other RNAs are here because a
@@ -116,7 +117,11 @@ function insdRaw(xmlText) {
   const head = table < 0 ? xmlText : xmlText.slice(0, table);
   return {
     accession: one(head, 'INSDSeq_accession-version'), organism: one(head, 'INSDSeq_organism'),
-    length: Number(one(head, 'INSDSeq_length')), raw,
+    length: Number(one(head, 'INSDSeq_length')),
+    // The record's own bases, which the anchor map needs to place its features on the user's
+    // reference. It sits after the feature table, and a record may come without it.
+    sequence: one(xmlText, 'INSDSeq_sequence').replace(/[^A-Za-z]/g, '').toUpperCase(),
+    raw,
   };
 }
 
@@ -124,8 +129,21 @@ export function parseInsdseq(xmlText) {
   const rec = insdRaw(xmlText);
   if (!rec) throw new Error('NCBI returned no sequence record (is the accession right?)');
   return {
-    accession: rec.accession, organism: rec.organism, length: rec.length, ...buildFeatures(rec.raw),
+    accession: rec.accession, organism: rec.organism, length: rec.length,
+    sequence: rec.sequence, ...buildFeatures(rec.raw),
   };
+}
+
+// The bases under ORIGIN, if the file carries them.
+function genbankSequence(lines) {
+  const bases = [];
+  let inOrigin = false;
+  for (const line of lines) {
+    if (!inOrigin) inOrigin = /^ORIGIN\b/.test(line);
+    else if (/^\/\//.test(line)) break;
+    else bases.push(line.replace(/[^A-Za-z]/g, ''));
+  }
+  return bases.join('').toUpperCase();
 }
 
 export function parseGenbank(text) {
@@ -170,7 +188,7 @@ export function parseGenbank(text) {
     for (const k of Object.keys(f.quals)) f.quals[k] = f.quals[k].replace(/^"|"$/g, '').trim();
   }
   if (!accession && !raw.length) throw new Error('This does not look like a GenBank file');
-  return { accession, organism, length, ...buildFeatures(raw) };
+  return { accession, organism, length, sequence: genbankSequence(lines), ...buildFeatures(raw) };
 }
 
 // ---- fetching ---------------------------------------------------------------------------

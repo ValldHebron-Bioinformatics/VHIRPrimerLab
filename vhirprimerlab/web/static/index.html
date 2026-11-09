@@ -20,6 +20,7 @@
     <a class="wordmark" href="./" translate="no"><img src="vhir-logo.svg" alt="Vall d’Hebron Institut de Recerca" width="169" height="56">VHIRPrimerLab</a>
     <nav class="modes" aria-label="What to do">
       <a href="#design" data-mode="design" aria-current="page">Design primers</a>
+      <a href="#genes" data-mode="genes">Pick by gene</a>
       <a href="#check" data-mode="check">Check my primers</a>
     </nav>
     <div class="side-foot">
@@ -60,6 +61,24 @@
           <p class="error" id="seq-error" role="alert" hidden></p>
         </fieldset>
 
+        <fieldset class="field" data-modes="genes">
+          <legend>Organism</legend>
+          <select id="organism" aria-label="Organism" aria-describedby="organism-help">
+            <option value="">Choose an organism…</option>
+          </select>
+          <label class="paste-label" for="accession">or any other NCBI nucleotide record</label>
+          <div class="org-find">
+            <input type="text" id="accession" autocomplete="off" spellcheck="false" placeholder="NC_039199.1" aria-label="NCBI accession">
+            <button type="button" class="btn btn-quiet" id="accession-load">Load</button>
+          </div>
+          <div class="drop-actions">
+            <label class="btn btn-quiet" for="genbank">Load a GenBank file</label>
+            <input class="sr-only" type="file" id="genbank" accept=".gb,.gbk,.gbff,.genbank,.txt,text/plain">
+          </div>
+          <p class="help" id="organism-help">Your browser asks NCBI for the annotation and keeps it for next time. Only the accession leaves your computer; your sequences never do. A GenBank file needs no network at all.</p>
+          <p class="error" id="organism-error" role="alert" hidden></p>
+        </fieldset>
+
         <div class="field" data-modes="tile">
           <label for="amplicons">Number of amplicons</label>
           <input type="number" id="amplicons" name="amplicons" autocomplete="off" value="10" min="1" max="200" inputmode="numeric" aria-describedby="amp-hint">
@@ -87,7 +106,7 @@
         </fieldset>
 
         <div class="advanced" id="advanced" hidden>
-          <fieldset class="field rules" data-modes="tile regions check">
+          <fieldset class="field rules" data-modes="tile regions check genes">
             <legend>When does a primer bind a sequence?</legend>
             <div class="grid-fields">
               <div class="field"><label for="max_mismatches">Mismatches allowed</label><input type="number" id="max_mismatches" name="max_mismatches" autocomplete="off" data-setting="max_mismatches" value="2" min="0" max="10" aria-describedby="rule-text"></div>
@@ -111,18 +130,18 @@
               <div class="field" data-modes="tile"><label for="overlap">Min overlap (bp)</label><input type="number" id="overlap" name="overlap" autocomplete="off" data-setting="overlap" value="50" min="0"></div>
               <div class="field" data-modes="tile"><label for="max_start_loss">Max bases lost at the start</label><input type="number" id="max_start_loss" name="max_start_loss" autocomplete="off" data-setting="max_start_loss" value="50" min="0"></div>
               <div class="field" data-modes="tile"><label for="max_end_loss">Max bases lost at the end</label><input type="number" id="max_end_loss" name="max_end_loss" autocomplete="off" data-setting="max_end_loss" value="50" min="0"></div>
-              <div class="field" data-modes="tile regions"><label for="tm_min">Tm min (°C)</label><input type="number" id="tm_min" name="tm_min" autocomplete="off" data-setting="tm_min" value="57" step="0.5"></div>
-              <div class="field" data-modes="tile regions"><label for="tm_opt">Tm optimum (°C)</label><input type="number" id="tm_opt" name="tm_opt" autocomplete="off" data-setting="tm_opt" value="60" step="0.5"></div>
-              <div class="field" data-modes="tile regions"><label for="tm_max">Tm max (°C)</label><input type="number" id="tm_max" name="tm_max" autocomplete="off" data-setting="tm_max" value="63" step="0.5"></div>
-              <div class="field" data-modes="tile regions"><label for="max_tm_diff">Max Tm difference (°C)</label><input type="number" id="max_tm_diff" name="max_tm_diff" autocomplete="off" data-setting="max_tm_diff" value="2" step="0.5" min="0"></div>
-              <div class="field" data-modes="tile regions"><label for="primer_len_min">Primer length min</label><input type="number" id="primer_len_min" name="primer_len_min" autocomplete="off" data-setting="primer_len_min" value="18" min="1"></div>
-              <div class="field" data-modes="tile regions"><label for="primer_len_max">Primer length max</label><input type="number" id="primer_len_max" name="primer_len_max" autocomplete="off" data-setting="primer_len_max" value="25" min="1"></div>
-              <div class="field" data-modes="tile regions"><label for="gc_min">GC min (%)</label><input type="number" id="gc_min" name="gc_min" autocomplete="off" data-setting="gc_min" value="40" min="0" max="100"></div>
-              <div class="field" data-modes="tile regions"><label for="gc_max">GC max (%)</label><input type="number" id="gc_max" name="gc_max" autocomplete="off" data-setting="gc_max" value="60" min="0" max="100"></div>
-              <div class="field" data-modes="tile regions check"><label for="min_coverage">Coverage target (%)</label><input type="number" id="min_coverage" name="min_coverage" autocomplete="off" data-setting="min_coverage" value="95" min="0" max="100"></div>
-              <div class="field" data-modes="tile regions"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
-              <div class="field" data-modes="tile regions check"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
-              <div class="field" data-modes="tile regions check"><label for="reference_id">Reference sequence</label><select id="reference_id" name="reference_id" data-setting="reference_id"><option value="">First sequence</option></select></div>
+              <div class="field" data-modes="tile regions genes"><label for="tm_min">Tm min (°C)</label><input type="number" id="tm_min" name="tm_min" autocomplete="off" data-setting="tm_min" value="57" step="0.5"></div>
+              <div class="field" data-modes="tile regions genes"><label for="tm_opt">Tm optimum (°C)</label><input type="number" id="tm_opt" name="tm_opt" autocomplete="off" data-setting="tm_opt" value="60" step="0.5"></div>
+              <div class="field" data-modes="tile regions genes"><label for="tm_max">Tm max (°C)</label><input type="number" id="tm_max" name="tm_max" autocomplete="off" data-setting="tm_max" value="63" step="0.5"></div>
+              <div class="field" data-modes="tile regions genes"><label for="max_tm_diff">Max Tm difference (°C)</label><input type="number" id="max_tm_diff" name="max_tm_diff" autocomplete="off" data-setting="max_tm_diff" value="2" step="0.5" min="0"></div>
+              <div class="field" data-modes="tile regions genes"><label for="primer_len_min">Primer length min</label><input type="number" id="primer_len_min" name="primer_len_min" autocomplete="off" data-setting="primer_len_min" value="18" min="1"></div>
+              <div class="field" data-modes="tile regions genes"><label for="primer_len_max">Primer length max</label><input type="number" id="primer_len_max" name="primer_len_max" autocomplete="off" data-setting="primer_len_max" value="25" min="1"></div>
+              <div class="field" data-modes="tile regions genes"><label for="gc_min">GC min (%)</label><input type="number" id="gc_min" name="gc_min" autocomplete="off" data-setting="gc_min" value="40" min="0" max="100"></div>
+              <div class="field" data-modes="tile regions genes"><label for="gc_max">GC max (%)</label><input type="number" id="gc_max" name="gc_max" autocomplete="off" data-setting="gc_max" value="60" min="0" max="100"></div>
+              <div class="field" data-modes="tile regions check genes"><label for="min_coverage">Coverage target (%)</label><input type="number" id="min_coverage" name="min_coverage" autocomplete="off" data-setting="min_coverage" value="95" min="0" max="100"></div>
+              <div class="field" data-modes="tile regions genes"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
+              <div class="field" data-modes="tile regions check genes"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
+              <div class="field" data-modes="tile regions check genes"><label for="reference_id">Reference sequence</label><select id="reference_id" name="reference_id" data-setting="reference_id"><option value="">First sequence</option></select></div>
             </div>
             <label class="check" data-modes="tile"><input type="checkbox" id="degenerate" checked> Allow degenerate bases (IUPAC) where they rescue sequences</label>
             <label class="check" data-modes="regions"><input type="checkbox" id="allow_degenerate"> Allow degenerate bases (IUPAC) where they rescue sequences</label>
@@ -135,51 +154,78 @@
         </div>
       </form>
 
-      <section class="panel results" id="results" aria-labelledby="results-title" aria-live="polite">
-        <div class="results-head">
-          <h2 id="results-title">Results</h2>
-          <p class="verdict" id="verdict">Your tiling will appear here.</p>
-        </div>
+      <div class="column">
+        <section class="panel genome" id="genome-panel" data-modes="genes" aria-labelledby="genome-title">
+          <div class="results-head">
+            <h2 id="genome-title">The genome</h2>
+            <p class="verdict plan" id="genome-verdict">Add your sequences on the left, then pick the organism.</p>
+          </div>
 
-        <figure class="map" id="map-figure">
-          <figcaption class="sr-only" id="map-caption">Amplicons along the genome, one lane per pool.</figcaption>
-          <svg id="map" role="img" aria-labelledby="map-caption" viewBox="0 0 1000 150" preserveAspectRatio="none"></svg>
-          <p class="map-detail" id="map-detail"></p>
-        </figure>
+          <figure class="map genome-map" id="genome-figure" hidden>
+            <figcaption class="sr-only" id="genome-caption">Genes, proteins and other features drawn along your reference. Click one to cover it with amplicons; the list below says what you picked.</figcaption>
+            <svg id="genome" role="img" aria-labelledby="genome-caption" viewBox="0 0 1000 150" preserveAspectRatio="none"></svg>
+            <p class="map-detail" id="genome-detail"></p>
+          </figure>
 
-        <div class="progress" id="progress" hidden>
-          <p class="progress-label" id="progress-label">Starting…</p>
-          <div class="bar" role="progressbar" aria-labelledby="progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span id="bar-fill"></span></div>
-          <button type="button" class="btn-text" id="cancel" hidden>Cancel</button>
-        </div>
+          <p class="help" id="genome-note" hidden></p>
 
-        <dl class="figures" id="figures" hidden></dl>
+          <div class="block-controls" id="block-controls" hidden>
+            <div class="grid-fields">
+              <div class="field"><label for="amplicon_len">Target amplicon length (bp)</label><input type="number" id="amplicon_len" name="amplicon_len" autocomplete="off" data-setting="amplicon_len" value="400" min="1"></div>
+              <div class="field"><label for="gene_overlap">Min overlap (bp)</label><input type="number" id="gene_overlap" name="gene_overlap" autocomplete="off" data-setting="overlap" value="50" min="0"></div>
+            </div>
+            <ul class="blocks" id="blocks"></ul>
+            <p class="help" id="blocks-note" role="status"></p>
+            <button type="button" class="btn-text" id="whole-genome">Cover the whole genome instead</button>
+          </div>
+        </section>
 
-        <div class="table-wrap" id="table-wrap" hidden>
-          <table id="table"></table>
-        </div>
+        <section class="panel results" id="results" aria-labelledby="results-title" aria-live="polite">
+          <div class="results-head">
+            <h2 id="results-title">Results</h2>
+            <p class="verdict" id="verdict">Your tiling will appear here.</p>
+          </div>
 
-        <ul class="notes" id="notes" hidden></ul>
+          <figure class="map" id="map-figure">
+            <figcaption class="sr-only" id="map-caption">Amplicons along the genome, one lane per pool.</figcaption>
+            <svg id="map" role="img" aria-labelledby="map-caption" viewBox="0 0 1000 150" preserveAspectRatio="none"></svg>
+            <p class="map-detail" id="map-detail"></p>
+          </figure>
 
-        <div class="downloads" id="downloads" hidden>
-          <h3>Download</h3>
-          <div class="dl-row" id="dl-row"></div>
-        </div>
+          <div class="progress" id="progress" hidden>
+            <p class="progress-label" id="progress-label">Starting…</p>
+            <div class="bar" role="progressbar" aria-labelledby="progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar"><span id="bar-fill"></span></div>
+            <button type="button" class="btn-text" id="cancel" hidden>Cancel</button>
+          </div>
 
-        <div class="empty" id="empty">
-          <p>Add sequences on the left. VHIRPrimerLab aligns them, finds primer sites that match every sequence, and picks the best set of overlapping amplicons across the whole genome.</p>
-        </div>
+          <dl class="figures" id="figures" hidden></dl>
 
-        <ol class="steps" id="steps">
-          <li><strong>Align.</strong> Your sequences are aligned with MAFFT and a consensus is built.</li>
-          <li><strong>Find primer sites.</strong> Every position is tried; primers that fit the Tm, GC and length limits are checked against each sequence, with degenerate bases added where they rescue a strain.</li>
-          <li><strong>Choose the tiling.</strong> Exactly the number of amplicons you asked for, overlapping and split into two pools, picked so the weakest amplicon still covers as many sequences as possible.</li>
-        </ol>
-      </section>
+          <div class="table-wrap" id="table-wrap" hidden>
+            <table id="table"></table>
+          </div>
+
+          <ul class="notes" id="notes" hidden></ul>
+
+          <div class="downloads" id="downloads" hidden>
+            <h3>Download</h3>
+            <div class="dl-row" id="dl-row"></div>
+          </div>
+
+          <div class="empty" id="empty">
+            <p>Add sequences on the left. VHIRPrimerLab aligns them, finds primer sites that match every sequence, and picks the best set of overlapping amplicons across the whole genome.</p>
+          </div>
+
+          <ol class="steps" id="steps">
+            <li><strong>Align.</strong> Your sequences are aligned with MAFFT and a consensus is built.</li>
+            <li><strong>Find primer sites.</strong> Every position is tried; primers that fit the Tm, GC and length limits are checked against each sequence, with degenerate bases added where they rescue a strain.</li>
+            <li><strong>Choose the tiling.</strong> Exactly the number of amplicons you asked for, overlapping and split into two pools, picked so the weakest amplicon still covers as many sequences as possible.</li>
+          </ol>
+        </section>
+      </div>
     </div>
   </main>
 </div>
 <script src="engine.js" defer></script>
-<script src="app.js" defer></script>
+<script src="app.js" type="module"></script>
 </body>
 </html>

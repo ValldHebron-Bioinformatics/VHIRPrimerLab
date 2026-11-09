@@ -279,3 +279,28 @@ test('numeric character references are decoded', () => {
     'beta &#946; &#x3b2; &amp;amp</INSDQualifier_value>');
   assert.equal(parseInsdseq(xml).features[0].product, 'beta \u03b2 \u03b2 &amp');
 });
+
+test('a record hands over its own bases, which the anchor map needs', () => {
+  const xml = hmpvXml.replace('</INSDSeq_feature-table>',
+    '</INSDSeq_feature-table><INSDSeq_sequence>gtataaatta\ngattccaaaa</INSDSeq_sequence>');
+  assert.equal(parseInsdseq(xml).sequence, 'GTATAAATTAGATTCCAAAA');
+  assert.equal(parseInsdseq(hmpvXml).sequence, '');   // a record without them is not an error
+});
+
+test('a GenBank file hands over the bases under ORIGIN', () => {
+  const gb = `LOCUS       X1    40 bp    DNA   linear   VRL 01-JAN-2000
+VERSION     X1.1
+  ORGANISM  test virus
+FEATURES             Location/Qualifiers
+     CDS             1..20
+                     /gene="W"
+ORIGIN      
+        1 gtataaatta gattccaaaa
+       21 aaatatggga caagtgaaaa
+//
+`;
+  const a = parseGenbank(gb);
+  assert.equal(a.sequence, 'GTATAAATTAGATTCCAAAAAAATATGGGACAAGTGAAAA');
+  assert.equal(a.features[0].name, 'W');
+  assert.equal(parseGenbank(fixture('hmpv.gb')).sequence, '');   // its ORIGIN block is empty
+});

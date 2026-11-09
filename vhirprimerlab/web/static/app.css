@@ -76,6 +76,7 @@ h1 { font-size: 24px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015
 
 /* Work area: settings beside results. 380 + 24 + fluid fills the canvas edge to edge. */
 .work { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 24px; align-items: start; }
+.column { display: flex; flex-direction: column; gap: 24px; min-width: 0; }  /* genome over results */
 .setup { position: sticky; top: 24px; }
 @media (max-width: 900px) { .setup { position: static; } }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-panel); }
@@ -275,3 +276,50 @@ td.lead .sub { overflow-wrap: anywhere; }
 .steps strong { color: var(--ink); font-weight: 500; }
 #cancel { align-self: flex-start; font-size: 13px; color: var(--muted); }
 #cancel:hover { color: var(--ink); }
+
+/* Pick by gene: the annotation drawn over the user's reference, and the spans picked on it.
+   Same tokens as the amplicon map; genes magenta, proteins deeper, everything else grey, and
+   anything the anchor map could not place greyed out and not clickable. */
+.genome { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; }
+.org-find { display: flex; gap: 8px; }
+.org-find input { min-width: 0; }
+.map .feat { cursor: pointer; }
+.map .feat rect { fill: var(--data); }
+.map .feat .join { stroke: var(--data); stroke-dasharray: 2 3; }
+.map .feat text { fill: var(--on-ink); font-weight: 500; pointer-events: none; }
+.map .lane-cds rect { fill: var(--data-deep); }
+.map .lane-cds .join { stroke: var(--data-deep); }
+.map .lane-other rect { fill: var(--faint); }
+.map .lane-other .join { stroke: var(--faint); }
+.map .feat.off { cursor: default; }
+.map .feat.off rect { fill: var(--plan); }
+.map .feat.off .join { stroke: var(--plan); }
+.map .feat.off text { fill: var(--muted); }
+.map .feat:focus { outline: none; }
+.map .feat:hover rect, .map .feat:focus-visible rect { stroke: var(--ink); stroke-width: 2; }
+.map .block .bracket { fill: none; stroke: var(--ink); stroke-width: 2; }
+.map .block text { fill: var(--ink); font-weight: 500; }
+.map .block.sel .bracket { stroke: var(--data-deep); }
+.map .block.sel text { fill: var(--data-deep); }
+/* touch-action: none, or a drag on a touch screen scrolls the page instead of moving the edge */
+.map .handle { fill: var(--panel); stroke: var(--ink); cursor: ew-resize; touch-action: none; }
+.map .handle:focus { outline: none; }
+.map .handle:focus-visible, .map .block.sel .handle { fill: var(--data-tint); stroke: var(--data-deep); }
+.block-controls { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.block-controls .grid-fields, .blocks, .block-controls p { width: 100%; }
+.blocks { display: flex; flex-direction: column; }
+.blocks li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 4px; border-top: 1px solid var(--rule); font-size: 14px; }
+.blocks .b-name { font-weight: 500; }
+.blocks .b-span { color: var(--muted); font-size: 13px; }
+.blocks .b-count { margin-left: auto; color: var(--muted); font-size: 13px; }
+.blocks li.sel { background: var(--raised); }
+.b-remove {
+  border: 1px solid var(--border); background: var(--panel); border-radius: 999px; font-size: 12px;
+  padding: 2px 9px; cursor: pointer; color: var(--muted); min-height: 24px;
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+.b-remove:hover { color: var(--miss); border-color: var(--control); }
+@media (max-width: 640px) {
+  .genome { padding: 16px; }
+  .b-remove { min-height: 44px; padding: 4px 12px; }
+}

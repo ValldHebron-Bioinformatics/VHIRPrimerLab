@@ -1,4 +1,8 @@
 /* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
+import { buildAnchorMap } from './anchors.js';
+import { fetchAnnotation, parseGenbank } from './annotation.js';
+import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPosition } from './blocks.js';
+
 (() => {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -22,12 +26,37 @@
   };
 
   const state = { page: 'design', seqs: null, limits: null, job: null, map: null, result: null,
-    engine: null, handle: null, hasResults: false, lastJob: null };
+    engine: null, handle: null, hasResults: false, lastJob: null,
+    genome: { ann: null, map: null, refId: null, refLen: 0, blocks: [], edges: [], note: '',
+      drag: null, pending: null } };
 
   // ---------- mode ----------
+  const PAGES = ['design', 'genes', 'check'];
   const advanced = () => document.querySelector('input[name="level"]:checked').value === 'advanced';
   const mode = () => (state.page === 'check' ? 'check'
+    : state.page === 'genes' ? 'genes'
     : advanced() && $('use-regions').checked ? 'regions' : 'tile');
+
+  const COPY = {
+    tile: {
+      title: 'Design primers',
+      lede: 'Drop your genomes, choose how many amplicons you want, and get overlapping primer pairs in two pools, checked against every sequence.',
+      run: 'Design primers',
+      tab: 'tile a genome with primers',
+    },
+    genes: {
+      title: 'Pick by gene',
+      lede: 'Drop your genomes, pick the organism, and click the genes you want: each one is tiled with overlapping primer pairs, checked against every sequence.',
+      run: 'Design primers',
+      tab: 'pick primers by gene',
+    },
+    check: {
+      title: 'Check my primers',
+      lede: 'Paste primer pairs you already have and see how many of your sequences each pair amplifies, with the same matching rules as design.',
+      run: 'Check primers',
+      tab: 'check primers',
+    },
+  };
 
   // ---------- basic / advanced ----------
   const LEVEL_KEY = 'vhirprimerlab.level';
@@ -72,14 +101,13 @@
       if (a.dataset.mode === state.page) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
-    const check = m === 'check';
-    $('title').textContent = check ? 'Check my primers' : 'Design primers';
-    $('lede').textContent = check
-      ? 'Paste primer pairs you already have and see how many of your sequences each pair amplifies, with the same matching rules as design.'
-      : 'Drop your genomes, choose how many amplicons you want, and get overlapping primer pairs in two pools, checked against every sequence.';
-    $('run').textContent = check ? 'Check primers' : 'Design primers';
-    document.title = `VHIRPrimerLab: ${check ? 'check primers' : 'tile a genome with primers'}`;
+    const copy = COPY[m] || COPY.tile;   // regions is the design page with its own fields
+    $('title').textContent = copy.title;
+    $('lede').textContent = copy.lede;
+    $('run').textContent = copy.run;
+    document.title = `VHIRPrimerLab: ${copy.tab}`;
     if (!state.job) showIdle();
+    if (m === 'genes') refreshGenome();
   }
 
   // ---------- sequences ----------
@@ -142,6 +170,7 @@
     parsed.ids.forEach((id) => ref.add(new Option(id, id)));
     updateHint();
     if (!state.job) showIdle();
+    refreshGenome(true);   // the genes diagram is drawn over the reference, which just changed
     if (state.engine && state.engine.warmup) state.engine.warmup();
   }
 
@@ -155,6 +184,7 @@
     seqError('');
     updateHint();
     if (!state.job) showIdle();
+    refreshGenome(true);
   }
 
   function readFile(file) {
@@ -289,6 +319,469 @@
     if (state.map) drawMap(state.map.items, state.map.G, state.map.lanes);
   });
 
+  // ---------- pick by gene ----------
+  // The annotation comes from NCBI (annotation.js), is placed on the user's own reference with
+  // shared k-mers (anchors.js), and the spans the user clicks together are kept by blocks.js.
+  // Only the drawing, the dragging and the wiring live here.
+
+  // The records asked for most often; any other accession goes in the box below them.
+  const ORGANISMS = [
+    { label: 'Human metapneumovirus', accession: 'NC_039199.1' },
+    { label: 'Respiratory syncytial virus A', accession: 'NC_038235.1' },
+    { label: 'Respiratory syncytial virus B', accession: 'NC_001781.1' },
+    { label: 'SARS-CoV-2', accession: 'NC_045512.2' },
+    { label: 'Influenza A (H1N1) segment 4, HA', accession: 'NC_026433.1' },
+    { label: 'Influenza A (H1N1) segment 6, NA', accession: 'NC_026434.1' },
+  ];
+  const LANES = [
+    { label: 'Genes', cls: 'lane-gene' },
+    { label: 'CDS', cls: 'lane-cds' },
+    { label: 'Other', cls: 'lane-other' },
+  ];
+  const laneOf = (f) => (f.kind === 'gene' ? 0 : f.kind === 'CDS' ? 1 : 2);
+  // A span's name becomes the prefix of every primer name in the order sheet, and the engine
+  // accepts only letters, digits, _ . - in it. A feature named after its product has spaces.
+  const spanName = (name) => name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '') || 'span';
+  // The engine refuses two spans with the same name, which two features of one name would give.
+  const freeName = (name, taken) => {
+    if (!taken.has(name)) return name;
+    for (let n = 2; ; n += 1) if (!taken.has(`${name}.${n}`)) return `${name}.${n}`;
+  };
+  const GRID = 10;                 // a drag that lands near no feature edge snaps to this
+  const minSpan = () => smallestSpan(num('primer_len_max') || 25);
+  let plot = null;                 // the last draw's geometry, so a drag can read bases off pixels
+
+  function genomeError(message) {
+    $('organism-error').textContent = message || '';
+    $('organism-error').hidden = !message;
+  }
+
+  // The chosen reference without its gaps: the coordinates the engine and the server both use.
+  function referenceBases() {
+    if (!state.seqs) return '';
+    const want = $('reference_id').value;
+    const parts = [];
+    let keep = false;
+    for (const line of state.seqs.text.split(/\r?\n/)) {
+      if (line.startsWith('>')) {
+        if (keep) break;
+        keep = !want || (line.slice(1).split(/\s+/)[0] || '') === want;   // no choice: the first
+      } else if (keep) {
+        parts.push(line.replace(/[^A-Za-z]/g, ''));
+      }
+    }
+    return parts.join('').toUpperCase();
+  }
+
+  // A trusted map puts the diagram and the spans in the user's reference coordinates. An
+  // untrusted one would invent positions, so both fall back to the record's own and the note
+  // says so: whatever the case, the ruler and the spans are in the same coordinates.
+  function axis() {
+    const g = state.genome;
+    if (g.map && g.map.trusted) return { convert: g.map.convert, G: g.refLen, record: false };
+    return { convert: (pos) => pos, G: Math.max(1, (g.ann && g.ann.length) || g.refLen), record: true };
+  }
+
+  function featureDetail(f, start, end, off) {
+    const parts = [f.name];
+    if (f.product && f.product !== f.name) parts.push(f.product);
+    parts.push(f.kind, `${fmt(start)}–${fmt(end)} (${fmt(end - start + 1)} bp)`, `${f.strand} strand`);
+    if (off) parts.push('outside the part of the record your sequences cover');
+    return parts.join(' · ');
+  }
+
+  function drawGenome(ann, map, blocks) {
+    const { convert, G, record } = axis();
+    $('genome-figure').hidden = false;   // measure the real width, not a hidden box
+    const svg = $('genome');
+    const W = Math.max(280, Math.round(svg.parentElement.clientWidth || 800));
+    const left = 64;
+    const right = 8;
+    const band = 28;                     // room above the lanes for the block brackets
+    const laneH = 24;
+    const laneGap = 8;
+    const rows = LANES.flatMap((lane, i) => (ann.features.some((f) => laneOf(f) === i) ? [i] : []));
+    const rowOf = new Map(rows.map((i, r) => [i, r]));
+    const H = band + Math.max(1, rows.length) * (laneH + laneGap) + 30;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', H);
+    const plotW = W - left - right;
+    const x = (pos) => left + ((Math.min(G, Math.max(1, pos)) - 1) / G) * plotW;
+    plot = { W, left, plotW, G };
+    const NS = 'http://www.w3.org/2000/svg';
+    const el = (tag, attrs, parent) => {
+      const node = document.createElementNS(NS, tag);
+      Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+      (parent || svg).appendChild(node);
+      return node;
+    };
+    svg.textContent = '';
+    rows.forEach((i, r) => {
+      el('text', { x: 0, y: band + r * (laneH + laneGap) + laneH / 2 + 4, class: 'lane-label' })
+        .textContent = LANES[i].label;
+    });
+    const axisY = band + Math.max(1, rows.length) * (laneH + laneGap) + 2;
+    el('line', { x1: left, x2: left + plotW, y1: axisY, y2: axisY, class: 'axis' });
+    const step = niceStep(G, Math.max(3, Math.floor(plotW / 90)));
+    for (let v = 0; v <= G; v += step) {
+      const tx = left + (v / G) * plotW;
+      el('line', { x1: tx, x2: tx, y1: axisY, y2: axisY + 5, class: 'tick' });
+      el('text', { x: tx, y: axisY + 19, 'text-anchor': v === 0 ? 'start' : 'middle' }).textContent = tickLabel(v);
+    }
+    ann.features.forEach((f, i) => {
+      const y = band + rowOf.get(laneOf(f)) * (laneH + laneGap);
+      // Greying only means something under a trusted map; under the record's own ruler every
+      // feature is equally unplaced, and the note already says so.
+      const off = !record && (f.end < map.mappedRange[0] || f.start > map.mappedRange[1]);
+      const start = convert(f.start);
+      const end = convert(f.end);
+      const detail = featureDetail(f, start, end, off);
+      const g = el('g', {
+        class: `feat ${LANES[laneOf(f)].cls}${off ? ' off' : ''}`,
+        tabindex: off ? -1 : 0,
+        'data-feature': i,
+        'aria-label': detail,
+      });
+      const bx = x(start);
+      const bw = Math.max(3, x(end + 1) - bx);
+      if (f.intervals.length > 1) {   // a spliced feature: its pieces joined by a thin line
+        el('line', { x1: bx, x2: bx + bw, y1: y + laneH / 2, y2: y + laneH / 2, class: 'join' }, g);
+      }
+      f.intervals.forEach(([a, b]) => {
+        const ix = x(convert(a));
+        el('rect', { x: ix, y, width: Math.max(3, x(convert(b) + 1) - ix), height: laneH, rx: 3 }, g);
+      });
+      el('title', {}, g).textContent = detail;
+      if (bw > f.name.length * 7.5 + 10) {
+        el('text', { x: bx + bw / 2, y: y + laneH / 2 + 4, 'text-anchor': 'middle' }, g).textContent = f.name;
+      }
+      if (off) return;
+      const show = () => { $('genome-detail').textContent = detail; };
+      g.addEventListener('mouseenter', show);
+      g.addEventListener('focus', show);
+      g.addEventListener('click', () => addBlock(f));
+      g.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addBlock(f); }
+      });
+    });
+    blocks.forEach((b, i) => {
+      const bx = x(b.start);
+      const ex = x(Math.min(G, b.end + 1));
+      const g = el('g', { class: 'block', 'data-block': i });
+      el('path', { d: `M${bx} ${band - 6}V${band - 14}H${ex}V${band - 6}`, class: 'bracket' }, g);
+      el('text', { x: (bx + ex) / 2, y: band - 18, 'text-anchor': 'middle' }, g).textContent = b.name;
+      el('title', {}, g).textContent = `${b.name}: ${fmt(b.start)}–${fmt(b.end)}`;
+      g.addEventListener('mouseenter', () => selectBlock(i));
+      [['start', bx, b.start], ['end', ex, b.end]].forEach(([edge, hx, at]) => {
+        const handle = el('rect', {
+          class: 'handle', x: hx - 5, y: band - 18, width: 10, height: 16, rx: 2,
+          tabindex: 0, 'data-block': i, 'data-edge': edge,
+          'aria-label': `Move the ${edge} of ${b.name}, now ${fmt(at)}. Left and right arrows move it.`,
+        }, g);
+        handle.addEventListener('pointerdown', (e) => startDrag(e, i, edge));
+        handle.addEventListener('keydown', (e) => nudge(e, i, edge));
+        handle.addEventListener('focus', () => selectBlock(i));
+      });
+    });
+  }
+
+  function selectBlock(index) {
+    const key = String(index);
+    document.querySelectorAll('#genome .block').forEach((g) => g.classList.toggle('sel', g.dataset.block === key));
+    document.querySelectorAll('#blocks li').forEach((li) => li.classList.toggle('sel', li.dataset.block === key));
+    const b = state.genome.blocks[index];
+    if (b) {
+      $('genome-detail').textContent = `${b.name} · ${fmt(b.start)}–${fmt(b.end)} · `
+        + `${fmt(b.end - b.start + 1)} bp. Drag either handle to adjust it.`;
+    }
+  }
+
+  function redrawGenome() {
+    const g = state.genome;
+    if (!g.ann || !g.map) return;
+    drawGenome(g.ann, g.map, g.blocks);
+    renderBlocks();
+  }
+
+  // Spans that touch become one. The joined name becomes the prefix of every primer name in the
+  // order sheet, so the note has to say which spans were joined.
+  function commitBlocks(blocks) {
+    const g = state.genome;
+    const merged = mergeBlocks(blocks);
+    const joined = merged
+      .filter((m) => blocks.filter((b) => b.start >= m.start && b.end <= m.end).length > 1)
+      .map((m) => m.name);
+    g.note = joined.length ? `Spans that touch become one: ${joined.join(', ')}.` : '';
+    g.blocks = merged;
+    redrawGenome();
+  }
+
+  function addBlock(feature) {
+    const g = state.genome;
+    const name = freeName(spanName(feature.name), new Set(g.blocks.map((b) => b.name)));
+    const block = blockFromFeature({ ...feature, name }, {
+      convert: axis().convert, limit: g.refLen, minSpan: minSpan(),
+    });
+    commitBlocks([...g.blocks, block]);
+    selectBlock(g.blocks.findIndex((b) => b.start <= block.start && b.end >= block.end));
+  }
+
+  function removeBlock(index) {
+    const g = state.genome;
+    g.blocks.splice(index, 1);
+    g.note = '';
+    redrawGenome();
+  }
+
+  function renderBlocks() {
+    const g = state.genome;
+    const ul = $('blocks');
+    const ampLen = Math.round(num('amplicon_len'));
+    const overlap = Math.round(num('gene_overlap'));
+    const sane = ampLen > 0 && overlap >= 0 && ampLen > overlap;
+    let total = 0;
+    ul.textContent = '';
+    g.blocks.forEach((b, i) => {
+      const n = sane ? ampliconCount(b, ampLen, overlap) : 0;
+      total += n;
+      const li = document.createElement('li');
+      li.dataset.block = String(i);
+      const name = document.createElement('span');
+      name.className = 'b-name';
+      name.textContent = b.name;
+      const where = document.createElement('span');
+      where.className = 'b-span';
+      where.textContent = `${fmt(b.start)}–${fmt(b.end)} · ${fmt(b.end - b.start + 1)} bp`;
+      const count = document.createElement('span');
+      count.className = 'b-count';
+      count.textContent = sane ? `${fmt(n)} amplicon${n === 1 ? '' : 's'}` : '—';
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'b-remove';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${b.name}`);
+      remove.addEventListener('click', () => removeBlock(i));
+      li.append(name, where, count, remove);
+      li.addEventListener('mouseenter', () => selectBlock(i));
+      ul.append(li);
+    });
+    const cap = state.limits ? state.limits.max_amplicons : 0;
+    const over = Boolean(sane && cap && total > cap);
+    const lines = [];
+    if (!g.blocks.length) lines.push('Click a gene above to cover it with amplicons.');
+    else if (!sane) lines.push('The target amplicon length must be greater than the minimum overlap.');
+    else {
+      lines.push(`${fmt(g.blocks.length)} span${g.blocks.length === 1 ? '' : 's'} · `
+        + `${fmt(total)} amplicon${total === 1 ? '' : 's'} of about ${fmt(ampLen)} bp.`);
+    }
+    if (over) lines.push(`The web app designs up to ${fmt(cap)} amplicons: lengthen the amplicons or pick fewer genes.`);
+    if (g.note) lines.push(g.note);
+    const bad = Boolean(g.blocks.length) && (!sane || over);
+    const note = $('blocks-note');
+    note.textContent = lines.join(' ');
+    note.classList.toggle('error', bad);
+    note.classList.toggle('help', !bad);
+    $('block-controls').hidden = false;
+  }
+
+  // ---- dragging a block's handles ----
+  // The listeners sit on the window, not on the handle: each move redraws the whole diagram, so
+  // the element under the pointer is gone by the time the next event arrives.
+  function posFromEvent(event) {
+    const rect = $('genome').getBoundingClientRect();
+    const scale = rect.width ? plot.W / rect.width : 1;
+    return Math.round(1 + (((event.clientX - rect.left) * scale - plot.left) / plot.plotW) * plot.G);
+  }
+
+  function moveEdge(index, edge, pos) {
+    const g = state.genome;
+    const b = g.blocks[index];
+    if (!b) return;
+    const least = minSpan();
+    if (edge === 'start') b.start = Math.max(1, Math.min(pos, b.end - least + 1));
+    else b.end = Math.min(g.refLen, Math.max(pos, b.start + least - 1));
+  }
+
+  function onDrag(event) {
+    const d = state.genome.drag;
+    if (!d) return;
+    moveEdge(d.index, d.edge, snapPosition(posFromEvent(event), state.genome.edges, GRID));
+    redrawGenome();
+    selectBlock(d.index);
+  }
+
+  function endDrag() {
+    window.removeEventListener('pointermove', onDrag);
+    window.removeEventListener('pointerup', endDrag);
+    window.removeEventListener('pointercancel', endDrag);
+    state.genome.drag = null;
+    commitBlocks(state.genome.blocks);   // a drag can push two spans together
+  }
+
+  function startDrag(event, index, edge) {
+    event.preventDefault();
+    state.genome.drag = { index, edge };
+    selectBlock(index);
+    window.addEventListener('pointermove', onDrag);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+  }
+
+  function nudge(event, index, edge) {
+    const step = event.shiftKey ? 100 : GRID;
+    const delta = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+    if (!delta) return;
+    event.preventDefault();
+    const b = state.genome.blocks[index];
+    if (!b) return;
+    moveEdge(index, edge, (edge === 'start' ? b.start : b.end) + delta);
+    commitBlocks(state.genome.blocks);
+    const same = document.querySelector(`#genome .handle[data-block="${index}"][data-edge="${edge}"]`);
+    if (same) same.focus();
+  }
+
+  // ---- loading an annotation ----
+  function useAnnotation(ann) {
+    const g = state.genome;
+    const what = ann.organism || ann.accession || 'This record';
+    // The record is kept even when it cannot be drawn yet, so sequences dropped afterwards draw
+    // it without picking the organism again. A map always belongs to one record and one
+    // reference, so it goes now and is rebuilt below.
+    g.ann = ann;
+    g.map = null;
+    g.blocks = [];
+    g.note = '';
+    const stop = (message) => {
+      $('genome-figure').hidden = true;
+      $('block-controls').hidden = true;
+      $('genome-note').hidden = true;
+      $('genome-verdict').textContent = `${what} is ready.`;
+      genomeError(message);
+    };
+    const bases = referenceBases();
+    if (!bases) {
+      stop('Add your sequences first: the genes are drawn over your own reference.');
+      return;
+    }
+    if (!ann.sequence) {
+      stop(`${ann.accession || 'This record'} came without its sequence, so its genes cannot `
+        + 'be placed on your reference. Load the GenBank file including the bases under ORIGIN.');
+      return;
+    }
+    genomeError('');
+    g.refId = $('reference_id').value;
+    g.refLen = bases.length;
+    g.map = buildAnchorMap(ann.sequence, bases);
+    const { convert, record } = axis();
+    g.edges = ann.features.flatMap((f) => [convert(f.start), convert(f.end)]);
+    const notes = [];
+    if (record) {
+      notes.push('Your sequences and this record share too little exact sequence to place the genes '
+        + 'on your reference, so the ruler below shows the record’s own positions and the spans '
+        + 'follow them. Check them before you run, or pick another organism.');
+    }
+    if (ann.skipped.length) {
+      const kinds = [...new Set(ann.skipped.map((s) => s.kind))].join(', ');
+      notes.push(`${fmt(ann.skipped.length)} feature${ann.skipped.length === 1 ? '' : 's'} `
+        + `could not be read and ${ann.skipped.length === 1 ? 'is' : 'are'} not drawn (${kinds}).`);
+    }
+    if (!ann.features.length) {
+      notes.push('This record has no genes or proteins to click; cover the whole genome instead, '
+        + 'or load a record that carries an annotation.');
+    }
+    const note = $('genome-note');
+    note.textContent = notes.join(' ');
+    note.hidden = !notes.length;
+    note.classList.toggle('error', record);
+    $('genome-verdict').textContent = `${what} · `
+      + `${fmt(ann.features.length)} feature${ann.features.length === 1 ? '' : 's'} · `
+      + `${fmt(g.map.count)} anchor${g.map.count === 1 ? '' : 's'} over ${pct(g.map.covered * 100)} `
+      + `of the record, on your ${fmt(g.refLen)} bp reference`;
+    $('genome-detail').textContent = 'Click a gene or protein to cover it with amplicons.';
+    redrawGenome();
+  }
+
+  // The map holds for one reference only, so a new reference rebuilds it and drops the spans.
+  // `force` is for new sequences, which can leave the reference's name unchanged.
+  function refreshGenome(force) {
+    const g = state.genome;
+    if (!state.seqs) {
+      g.map = null;
+      g.blocks = [];
+      $('genome-figure').hidden = true;
+      $('block-controls').hidden = true;
+      $('genome-note').hidden = true;
+      $('genome-verdict').textContent = 'Add your sequences on the left, then pick the organism.';
+      return;
+    }
+    if (!g.ann) {
+      $('genome-verdict').textContent = 'Pick the organism your sequences come from to see its genes.';
+      return;
+    }
+    if (!force && g.map && g.refId === $('reference_id').value) {
+      redrawGenome();   // the panel may have changed width while it was hidden
+      return;
+    }
+    const had = g.blocks.length;
+    useAnnotation(g.ann);
+    if (had && g.map) {
+      g.note = 'Your reference changed, so the spans you had picked were cleared.';
+      renderBlocks();
+    }
+  }
+
+  async function loadAccession(accession) {
+    const id = accession.trim();
+    const g = state.genome;
+    if (!id) return;
+    if (!state.seqs) {
+      genomeError('Add your sequences first: the genes are drawn over your own reference.');
+      return;
+    }
+    genomeError('');
+    $('genome-verdict').textContent = `Asking NCBI for ${id}…`;
+    const token = {};
+    g.pending = token;
+    try {
+      const ann = await fetchAnnotation(id);
+      if (g.pending !== token) return;   // the user picked something else meanwhile
+      useAnnotation(ann);
+    } catch (err) {
+      if (g.pending !== token) return;
+      genomeError(err.message);
+      $('genome-verdict').textContent = 'Pick the organism your sequences come from to see its genes.';
+    }
+  }
+
+  async function loadGenbankFile(file) {
+    if (!file) return;
+    $('organism').value = '';
+    state.genome.pending = null;
+    try {
+      useAnnotation(parseGenbank(await file.text()));
+    } catch (err) {
+      genomeError(err.message);
+    }
+    $('genbank').value = '';
+  }
+
+  ORGANISMS.forEach((o) => $('organism').add(new Option(`${o.label} — ${o.accession}`, o.accession)));
+  $('organism').addEventListener('change', (e) => { $('accession').value = ''; loadAccession(e.target.value); });
+  $('accession-load').addEventListener('click', () => { $('organism').value = ''; loadAccession($('accession').value); });
+  $('accession').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); $('accession-load').click(); }
+  });
+  $('genbank').addEventListener('change', (e) => loadGenbankFile(e.target.files[0]));
+  ['amplicon_len', 'gene_overlap'].forEach((id) => $(id).addEventListener('input', () => {
+    if (state.genome.map) renderBlocks();
+  }));
+  $('whole-genome').addEventListener('click', () => {
+    if (state.genome.refLen) commitBlocks([{ name: 'genome', start: 1, end: state.genome.refLen }]);
+  });
+  $('reference_id').addEventListener('change', () => { if (mode() === 'genes') refreshGenome(); });
+  window.addEventListener('resize', () => { if (mode() === 'genes') redrawGenome(); });
+
   // ---------- idle, progress and results views ----------
   function resetResults() {
     ['progress', 'figures', 'table-wrap', 'notes', 'downloads', 'steps'].forEach((id) => { $(id).hidden = true; });
@@ -316,6 +809,7 @@
   const OUTCOME = {
     tile: 'When it finishes you get both primers of every amplicon, how many of your sequences each amplicon covers and why it misses any, and the files primers.tsv (names and sequences, ready to order), amplicons.tsv (every detail), scheme.bed (ARTIC primer scheme) and report.txt.',
     regions: 'When it finishes you get the best primer pairs in each region, ranked by how many of your sequences they amplify, with primers.tsv (the best pair of each region, ready to order), pairs.tsv (every pair with its details) and report.txt.',
+    genes: 'Click the genes you want on the diagram above. Each span you pick is tiled with overlapping amplicons named after it, so you get primers.tsv (ready to order), amplicons.tsv, scheme.bed and report.txt for those regions only.',
     check: 'Add your sequences and paste your primer pairs. Each pair is placed on the alignment and scored on every sequence, with the reason for each miss.',
   };
 
@@ -325,13 +819,15 @@
     const verdict = $('verdict');
     $('empty').hidden = false;
     $('empty').querySelector('p').textContent = OUTCOME[m];
-    $('steps').hidden = m === 'check';
+    $('steps').hidden = m === 'check' || m === 'genes';   // the steps describe the whole-genome run
     const p = drawPlan();
     if (p) {
       verdict.className = 'verdict plan';
       verdict.textContent = `Planned: ${p.n} amplicon${p.n === 1 ? '' : 's'} of about ${fmt(p.L)} bp across ${fmt(p.G)} bp.`;
     } else if (m === 'tile') {
       verdict.textContent = 'Your tiling will appear here.';
+    } else if (m === 'genes') {
+      verdict.textContent = 'The amplicons covering the genes you pick will appear here.';
     } else if (m === 'regions') {
       verdict.textContent = 'The best pairs for each region will appear here.';
     } else {
@@ -766,6 +1262,12 @@
   function settings(m) {
     const out = {};
     if (m === 'tile') out.amplicons = Math.round(num('amplicons'));
+    if (m === 'genes') {
+      // The picked spans and their two controls are the mode itself, not advanced settings.
+      out.tile_regions = state.genome.blocks.map((b) => `${b.name}:${b.start}-${b.end}`);
+      out.amplicon_len = Math.round(num('amplicon_len'));
+      out.overlap = Math.round(num('gene_overlap'));
+    }
     if (!advanced()) return out; // Basic: the recommended settings
     if (m === 'regions') {
       out.regions = $('regions').value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
@@ -803,6 +1305,17 @@
     if (m === 'tile') {
       const p = plan();
       if (p && p.error) { formError(p.error); $('amplicons').focus(); return; }
+    }
+    if (m === 'genes') {
+      if (!state.genome.blocks.length) {
+        formError('Click a gene on the diagram to choose what to amplify.');
+        return;
+      }
+      if (!(num('amplicon_len') > num('gene_overlap'))) {
+        formError('The target amplicon length must be greater than the minimum overlap.');
+        $('amplicon_len').focus();
+        return;
+      }
     }
     if (m === 'check' && !$('primers').value.trim()) {
       formError('Paste your primer pairs first.');
@@ -921,7 +1434,7 @@
     });
   }
 
-  state.page = location.hash === '#check' ? 'check' : 'design';
+  state.page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'design';
   try {
     if (localStorage.getItem(LEVEL_KEY) === 'advanced') document.querySelector('input[name="level"][value="advanced"]').checked = true;
   } catch (e) { /* private window */ }
