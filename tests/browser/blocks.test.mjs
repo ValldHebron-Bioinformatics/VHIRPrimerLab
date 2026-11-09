@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PAD, blockFromFeature, mergeBlocks, ampliconCount, snapPosition, smallestSpan,
+  PAD, achievedPad, ampliconCount, blockFromFeature, lossLimits, lossNotes, mergeBlocks,
+  smallestSpan, snapPosition,
 } from '../../vhirprimerlab/web/static/blocks.js';
 
 test('a block covers its feature with padding on both sides', () => {
@@ -100,4 +101,95 @@ test('a block stops at the reference bounds when minSpan cannot be reached', () 
 test('the smallest span is two primers plus one base at the default tolerance', () => {
   assert.equal(smallestSpan(25, 0.20), 64);
   assert.equal(PAD, 50);
+});
+
+// ---- the padding a block actually achieved, and the loss limits that follow ----------------
+
+test('a padded block records where its feature sits, so its padding can be read back', () => {
+  const b = blockFromFeature({ name: 'F', start: 2912, end: 4718 },
+                             { convert: (p) => p, limit: 13232 });
+  assert.deepEqual([b.start, b.end], [2812, 4818]);
+  assert.deepEqual(achievedPad(b), { start: 100, end: 100 });
+});
+
+test('a block clamped at the reference start achieved no padding there', () => {
+  // hMPV's N gene maps to 1-1185 of a 13,232 bp reference: the span cannot start before base 1.
+  const b = blockFromFeature({ name: 'N', start: 1, end: 1185 },
+                             { convert: (p) => p, limit: 13232 });
+  assert.deepEqual([b.start, b.end], [1, 1285]);
+  assert.deepEqual(achievedPad(b), { start: 0, end: 100 });
+});
+
+test('a block with no feature behind it has no padding at all', () => {
+  assert.deepEqual(achievedPad({ name: 'genome', start: 1, end: 13232 }), { start: 0, end: 0 });
+});
+
+test('moving a handle changes the padding, because it is measured live', () => {
+  const b = blockFromFeature({ name: 'F', start: 2912, end: 4718 },
+                             { convert: (p) => p, limit: 13232 });
+  b.start = 2852;                       // dragged 40 bp inward, 60 of the padding left
+  assert.deepEqual(achievedPad(b), { start: 60, end: 100 });
+  b.start = 3012;                       // dragged 100 bp past the feature's own start
+  assert.equal(achievedPad(b).start, -100);
+});
+
+test('the loss limits are the least padding any block achieved, capped and floored', () => {
+  const full = { name: 'F', start: 2812, end: 4818, feat: { start: 2912, end: 4718 } };
+  const atStart = { name: 'N', start: 1, end: 1285, feat: { start: 1, end: 1185 } };
+  assert.deepEqual(lossLimits([full]), { start: 100, end: 100 });
+  // The start is floored at the engine's own default: a limit of 0 is shorter than any primer
+  // and no tiling could ever meet it.
+  assert.deepEqual(lossLimits([atStart]), { start: 50, end: 100 });
+  assert.deepEqual(lossLimits([full, atStart]), { start: 50, end: 100 });
+  // Widening a short feature to the smallest span gives more padding than the engine is asked
+  // for; asking for more than the padding would buy nothing, so it is capped.
+  const wide = { name: 'S', start: 1, end: 400, feat: { start: 200, end: 202 } };
+  assert.deepEqual(lossLimits([wide]), { start: 100, end: 100 });
+});
+
+test('a run with no blocks, or only the whole genome, asks for the engine default', () => {
+  assert.deepEqual(lossLimits([]), { start: 50, end: 50 });
+  assert.deepEqual(lossLimits([{ name: 'genome', start: 1, end: 13232 }]), { start: 50, end: 50 });
+});
+
+test('the loss notes name the blocks that can lose bases of their own feature', () => {
+  const full = { name: 'F', start: 2812, end: 4818, feat: { start: 2912, end: 4718 } };
+  const atStart = { name: 'N', start: 1, end: 1285, feat: { start: 1, end: 1185 } };
+  const blocks = [atStart, full];
+  const limits = lossLimits(blocks);
+  // N has no padding at its start, so the 50 nt the engine may leave outside the inserts come
+  // out of N itself. F keeps its full padding and loses nothing.
+  assert.deepEqual(lossNotes(blocks, limits), [{ name: 'N', start: 50, end: 0 }]);
+  assert.deepEqual(lossNotes([full], lossLimits([full])), []);
+});
+
+test('a feature filling its whole record loses bases at both ends', () => {
+  // The influenza HA record: the CDS is 21-1721 of 1,733 nt, so neither end can be padded.
+  const b = blockFromFeature({ name: 'HA', start: 21, end: 1721 },
+                             { convert: (p) => p, limit: 1733 });
+  assert.deepEqual(achievedPad(b), { start: 20, end: 12 });
+  const limits = lossLimits([b]);
+  assert.deepEqual(limits, { start: 50, end: 50 });
+  assert.deepEqual(lossNotes([b], limits), [{ name: 'HA', start: 30, end: 38 }]);
+});
+
+test('the whole-genome block is in the limits but never in the notes', () => {
+  const genome = [{ name: 'genome', start: 1, end: 13232 }];
+  assert.deepEqual(lossNotes(genome, lossLimits(genome)), []);
+});
+
+test('merging keeps the outer blocks padding, which is what the merged span has', () => {
+  const left = { name: 'A', start: 1, end: 1285, feat: { start: 1, end: 1185 } };
+  const right = { name: 'B', start: 1286, end: 2000, feat: { start: 1386, end: 1900 } };
+  const [m] = mergeBlocks([left, right]);
+  assert.deepEqual([m.name, m.start, m.end], ['A_B', 1, 2000]);
+  assert.deepEqual(achievedPad(m), { start: 0, end: 100 });
+});
+
+test('merging a nested block keeps the padding of the block that spans it', () => {
+  const outer = { name: 'A', start: 1, end: 2000, feat: { start: 101, end: 1900 } };
+  const inner = { name: 'B', start: 500, end: 700, feat: { start: 550, end: 650 } };
+  const [m] = mergeBlocks([outer, inner]);
+  assert.deepEqual([m.start, m.end], [1, 2000]);
+  assert.deepEqual(achievedPad(m), { start: 100, end: 100 });
 });

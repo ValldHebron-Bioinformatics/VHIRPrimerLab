@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { lossLimits } from '../../vhirprimerlab/web/static/blocks.js';
 
 const source = readFileSync(new URL('../../vhirprimerlab/web/static/app.js', import.meta.url), 'utf8');
 
@@ -35,14 +36,14 @@ const FIELDS = {
 function build({ level = 'basic', blocks = [], inputs = [], ...fields } = {}) {
   const values = { ...FIELDS, ...fields };
   const el = (id) => ({ value: values[id] ?? '', checked: Boolean(values[`${id}:checked`]) });
-  return new Function('$', 'num', 'advanced', 'state', 'document', 'PADDING',
+  return new Function('$', 'num', 'advanced', 'state', 'document', 'lossLimits',
     `${lift('settings')}; return settings;`)(
     el,
     (id) => Number(values[id] ?? ''),
     () => level === 'advanced',
     { genome: { blocks }, seqs: { ids: ['first.1', 'second.1'] } },
     { querySelectorAll: () => inputs },
-    100,
+    lossLimits,
   );
 }
 
@@ -81,4 +82,17 @@ test('an Advanced reference input cannot overwrite the reference already in the 
 test('the other modes do not gain a reference of their own', () => {
   assert.equal('reference_id' in build({ level: 'basic' })('tile'), false);
   assert.equal('reference_id' in build({ level: 'basic' })('check'), false);
+});
+
+test('the loss limits sent are the padding the spans achieved, not what they asked for', () => {
+  // F keeps its full 100 nt on both sides; N is clamped at base 1 and has none at its start.
+  const full = { name: 'F', start: 2812, end: 4818, feat: { start: 2912, end: 4718 } };
+  const atStart = { name: 'N', start: 1, end: 1285, feat: { start: 1, end: 1185 } };
+  const out = build({ level: 'basic', blocks: [atStart, full] })('genes');
+  assert.equal(out.max_start_loss, 50);
+  assert.equal(out.max_end_loss, 100);
+  assert.deepEqual(out.tile_regions, ['N:1-1285', 'F:2812-4818']);
+  const padded = build({ level: 'basic', blocks: [full] })('genes');
+  assert.equal(padded.max_start_loss, 100);
+  assert.equal(padded.max_end_loss, 100);
 });

@@ -5,7 +5,12 @@
 // and the engine may leave up to --max-end-loss bases outside the insert at a span edge, so the
 // feature itself must end up inside the amplicons rather than under a primer.
 export const PAD = 50;
-const END_LOSS = 50;
+// The engine's own --max-start-loss / --max-end-loss default: the span bases it may leave outside
+// the inserts at an edge, the primer there included. Each block carries this much padding on top
+// of PAD so that the loss lands on padding rather than on the feature, and it is also the floor of
+// what a run asks for, because a limit shorter than a primer can never be met. One definition: the
+// page imports it from here.
+export const END_LOSS = 50;
 const SNAP_EDGE = 10;   // bp: a drag this close to a feature edge snaps to the edge
 
 // The span a block must have so one amplicon holds two primers and a base of insert.
@@ -33,7 +38,49 @@ export function blockFromFeature(feature, { convert, pad = PAD, endLoss = END_LO
     start -= growLeft;
     end += growRight;
   }
-  return { name: feature.name, start, end };
+  // Where the feature itself landed, kept so the padding the block really achieved can be read
+  // back later: clamping at a reference edge takes padding away, and so does dragging a handle.
+  return { name: feature.name, start, end, feat: { start: Math.min(a, b), end: Math.max(a, b) } };
+}
+
+// The padding a block achieved at each end: the bases between the span's edge and the feature the
+// user clicked. Measured from the block as it stands, so a dragged handle is accounted for, and
+// negative where a drag went inside the feature. A block with no feature behind it (the
+// whole-genome shortcut) has no padding: its span edge is the reference's own.
+const featOf = (b) => b.feat || { start: b.start, end: b.end };
+
+export function achievedPad(block) {
+  const feat = featOf(block);
+  return { start: feat.start - block.start, end: block.end - feat.end };
+}
+
+// The --max-start-loss / --max-end-loss a run of these blocks must ask for. The engine measures
+// both from the span's edge, so a limit larger than the padding there lets it leave the feature's
+// own bases outside the inserts: the limit is the least padding any block achieved. Asking for
+// more than the full padding buys nothing, hence the cap; a limit under END_LOSS cannot be met by
+// any primer, hence the floor, which is the engine's own default.
+export function lossLimits(blocks, { pad = PAD, endLoss = END_LOSS } = {}) {
+  const full = pad + endLoss;
+  const least = (side) => Math.min(...blocks.map((b) => achievedPad(b)[side]));
+  const limit = (side) => Math.min(full, Math.max(endLoss, least(side)));
+  return blocks.length ? { start: limit('start'), end: limit('end') } : { start: endLoss, end: endLoss };
+}
+
+// Bases of the feature behind each block that the engine may leave outside the amplicons under
+// these limits: what is lost is the limit beyond the padding. Since the limit is the least padding
+// achieved (floored at END_LOSS), only a block with less than END_LOSS of padding at an end can
+// lose anything there, and a fully padded block never appears here. The results panel never
+// mentions this, so the block list must.
+export function lossNotes(blocks, limits) {
+  const notes = [];
+  for (const b of blocks) {
+    if (!b.feat) continue;   // the whole-genome shortcut covers no feature in particular
+    const got = achievedPad(b);
+    const start = Math.max(0, limits.start - got.start);
+    const end = Math.max(0, limits.end - got.end);
+    if (start || end) notes.push({ name: b.name, start, end });
+  }
+  return notes;
 }
 
 // Blocks that touch or overlap become one, named by joining the parts with an underscore: the
@@ -44,7 +91,12 @@ export function mergeBlocks(blocks) {
   for (const next of sorted) {
     const current = merged[merged.length - 1];
     if (current && next.start <= current.end + 1) {
-      current.end = Math.max(current.end, next.end);
+      // The merged span has one pair of edges, so its padding is the outermost blocks': the first
+      // block's at the start (they are sorted) and, at the end, that of whichever reaches furthest.
+      if (next.end > current.end) {
+        current.feat = { start: featOf(current).start, end: featOf(next).end };
+        current.end = next.end;
+      }
       current.name = `${current.name}_${next.name}`;
     } else {
       merged.push({ ...next });
