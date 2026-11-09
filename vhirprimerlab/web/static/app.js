@@ -2,8 +2,8 @@
 import { buildAnchorMap } from './anchors.js';
 import { fetchAnnotation, parseGenbank, searchOrganisms } from './annotation.js';
 import {
-  END_LOSS, PAD, ampliconCount, blockFromFeature, lossLimits, lossNotes, mergeBlocks,
-  smallestSpan, snapPosition,
+  END_LOSS, PAD, ampliconCount, blockFromFeature, lossLimits, lossNotes, maxAmplicons,
+  mergeBlocks, minAmpliconLen, smallestSpan, snapPosition, targetLength,
 } from './blocks.js';
 
 (() => {
@@ -206,16 +206,6 @@ import {
   // ---------- amplicon size hint and planned layout ----------
   const num = (id) => Number($(id).value);
 
-  function maxAmplicons(G, overlap, lenMax) {
-    let best = 0;
-    for (let n = 1; n <= G; n += 1) {
-      const L = Math.round((G + (n - 1) * overlap) / n);
-      if (Math.floor((Math.floor(L * 0.8) - 1) / 2) < overlap + 2 * lenMax) break;
-      best = n;
-    }
-    return best;
-  }
-
   function plan() {
     if (!state.seqs) return null;
     const G = state.seqs.median;
@@ -224,8 +214,7 @@ import {
     if (!(n >= 1)) return { G, n, error: 'Enter how many amplicons you want.' };
     const most = maxAmplicons(G, overlap, num('primer_len_max'));
     if (n > most) return { G, n, error: `Too many for a ${fmt(G)} bp genome: at most ${fmt(most)} amplicons fit.` };
-    const L = Math.round((G + (n - 1) * overlap) / n);
-    return { G, n, L, overlap };
+    return { G, n, L: targetLength(G, n, overlap), overlap };
   }
 
   function updateHint() {
@@ -558,6 +547,33 @@ import {
     redrawGenome();
   }
 
+  // Why the two block controls cannot tile the spans the user picked, or '' when they can. The
+  // page used to check only that the amplicons are longer than the overlap; the engine also needs
+  // every amplicon to hold two primers plus the overlap, and in span mode it derives N from the
+  // amplicon length, so it refuses with an N the user never chose and never saw. The same rule
+  // runs here, over the derived target of each block, and names the number they can act on.
+  function blockProblem(ampLen, overlap) {
+    const blocks = state.genome.blocks;
+    if (!(ampLen > 0 && overlap >= 0 && ampLen > overlap)) {
+      return 'The target amplicon length must be greater than the minimum overlap.';
+    }
+    const lenMax = Math.round(num('primer_len_max')) || 25;
+    const needs = blocks.map((b) => ({
+      name: b.name, span: b.end - b.start + 1, need: minAmpliconLen(b, overlap, lenMax),
+    }));
+    const tooShort = needs.find((x) => !x.need);
+    if (tooShort) {
+      return `${tooShort.name} is only ${fmt(tooShort.span)} bp: too short for one amplicon with `
+        + `primers of up to ${fmt(lenMax)} bases.`;
+    }
+    const worst = needs.filter((x) => x.need > ampLen).sort((a, b) => b.need - a.need)[0];
+    if (!worst) return '';
+    return `${fmt(ampLen)} bp amplicons cannot tile ${worst.name} (${fmt(worst.span)} bp) at a `
+      + `${fmt(overlap)} bp overlap: they would come out too short to hold two primers and the `
+      + `overlap. The shortest that works here is ${fmt(worst.need)} bp; a smaller overlap also `
+      + 'brings it down.';
+  }
+
   // How much of a feature may fall outside the amplicons, in the user's terms: they chose a gene,
   // so the number that matters is bases of that gene, not of the span around it.
   function lossLine(l) {
@@ -575,6 +591,7 @@ import {
     const ampLen = Math.round(num('amplicon_len'));
     const overlap = Math.round(num('gene_overlap'));
     const sane = ampLen > 0 && overlap >= 0 && ampLen > overlap;
+    const problem = g.blocks.length ? blockProblem(ampLen, overlap) : '';
     let total = 0;
     ul.textContent = '';
     g.blocks.forEach((b, i) => {
@@ -605,7 +622,7 @@ import {
     const over = Boolean(sane && cap && total > cap);
     const lines = [];
     if (!g.blocks.length) lines.push('Click a gene above to cover it with amplicons.');
-    else if (!sane) lines.push('The target amplicon length must be greater than the minimum overlap.');
+    else if (problem) lines.push(problem);
     else {
       lines.push(`${fmt(g.blocks.length)} span${g.blocks.length === 1 ? '' : 's'} · `
         + `${fmt(total)} amplicon${total === 1 ? '' : 's'} of about ${fmt(ampLen)} bp.`);
@@ -616,7 +633,7 @@ import {
     // the amplicons. Only report.txt would say so otherwise.
     lossNotes(g.blocks, lossLimits(g.blocks)).forEach((l) => lines.push(lossLine(l)));
     if (g.note) lines.push(g.note);
-    const bad = Boolean(g.blocks.length) && (!sane || over);
+    const bad = Boolean(g.blocks.length) && (Boolean(problem) || over);
     const note = $('blocks-note');
     // A drag rebuilds this list on every pointer move, and the note is a live region: leaving it
     // alone until the drag ends spares a screen reader one announcement per pixel.
@@ -1476,8 +1493,9 @@ import {
         formError('Click a gene on the diagram to choose what to amplify.');
         return;
       }
-      if (!(num('amplicon_len') > num('gene_overlap'))) {
-        formError('The target amplicon length must be greater than the minimum overlap.');
+      const problem = blockProblem(Math.round(num('amplicon_len')), Math.round(num('gene_overlap')));
+      if (problem) {
+        formError(problem);
         $('amplicon_len').focus();
         return;
       }

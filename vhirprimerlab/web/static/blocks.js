@@ -105,6 +105,46 @@ export function mergeBlocks(blocks) {
   return merged;
 }
 
+// target_length() in vhirprimerlab/tiling.py. Python's round() is half to even, so a target that
+// lands exactly on .5 reads the same here as in the engine and a boundary case cannot disagree.
+export function targetLength(span, n, overlap) {
+  const exact = (span + (n - 1) * overlap) / n;
+  const near = Math.round(exact);
+  return Math.abs(exact % 1) === 0.5 && near % 2 !== 0 ? near - 1 : near;
+}
+
+// geometry() in vhirprimerlab/tiling.py: whether n amplicons over this span are long enough.
+// Neighbours may overlap by at most half the shortest amplicon, and that half must still hold two
+// primers and the required insert overlap; a single amplicon has no neighbour, so it only has to
+// hold two primers and one base of insert.
+function fits(span, n, overlap, primerLenMax, tolerance = 0.20) {
+  const lenMin = Math.floor(targetLength(span, n, overlap) * (1 - tolerance));
+  if (n === 1) return lenMin >= 2 * primerLenMax + 1;
+  return Math.floor((lenMin - 1) / 2) >= overlap + 2 * primerLenMax;
+}
+
+// max_amplicons() in vhirprimerlab/tiling.py: the most amplicons whose geometry still works at the
+// default tolerance, or 0 when not even one does.
+export function maxAmplicons(span, overlap, primerLenMax = 25) {
+  let best = 0;
+  for (let n = 1; n <= span; n += 1) {
+    if (!fits(span, n, overlap, primerLenMax)) break;
+    best = n;
+  }
+  return best;
+}
+
+// The shortest target amplicon length that can still tile this block at this overlap, or 0 when
+// none can. In span mode the engine derives N from the amplicon length, and refuses amplicons too
+// short to hold two primers and the overlap by naming an N the user never chose and never saw:
+// this is the number to tell them instead. Fewer amplicons are longer, so the most the geometry
+// allows is the fewest the span can be cut into, and this length asks for exactly that many.
+export function minAmpliconLen(block, overlap, primerLenMax = 25) {
+  const span = block.end - block.start + 1;
+  const most = maxAmplicons(span, overlap, primerLenMax);
+  return most ? overlap + Math.max(1, Math.ceil((span - overlap) / most)) : 0;
+}
+
 // Same formula as amplicons_for() in vhirprimerlab/tiling.py, which is the other copy: keep
 // them in step. The contract is the ampliconCount test in tests/browser/blocks.test.mjs.
 export function ampliconCount(block, ampliconLen, overlap) {

@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { lossLimits } from '../../vhirprimerlab/web/static/blocks.js';
+import { lossLimits, minAmpliconLen } from '../../vhirprimerlab/web/static/blocks.js';
 
 const source = readFileSync(new URL('../../vhirprimerlab/web/static/app.js', import.meta.url), 'utf8');
 
@@ -95,4 +95,60 @@ test('the loss limits sent are the padding the spans achieved, not what they ask
   const padded = build({ level: 'basic', blocks: [full] })('genes');
   assert.equal(padded.max_start_loss, 100);
   assert.equal(padded.max_end_loss, 100);
+});
+
+// ---- what the page says before a run, about the two block controls -------------------------
+
+// blockProblem() reads the same two controls as the payload above, and the same primer length, so
+// it is lifted the same way. fmt() is the page's thousands separator.
+function buildProblem({ blocks = [], primer_len_max: lenMax = '25' } = {}) {
+  return new Function('fmt', 'num', 'state', 'minAmpliconLen',
+    `${lift('blockProblem')}; return blockProblem;`)(
+    (n) => Number(n).toLocaleString('en-US'),
+    (id) => Number(id === 'primer_len_max' ? lenMax : ''),
+    { genome: { blocks } },
+    minAmpliconLen,
+  );
+}
+
+const F = [{ name: 'F', start: 2812, end: 4618 }];   // hMPV's F block: 1,807 bp
+
+test('the default controls tile the F block, and say nothing', () => {
+  assert.equal(buildProblem({ blocks: F })(400, 50), '');
+});
+
+test('an overlap too large for the amplicons names the amplicon length needed, not an N', () => {
+  // The engine would say: Region 'F': N too large: amplicons would be ~361 bp; use at most 5.
+  const msg = buildProblem({ blocks: F })(400, 120);
+  assert.match(msg, /^400 bp amplicons cannot tile F \(1,807 bp\) at a 120 bp overlap/);
+  assert.match(msg, /shortest that works here is 458 bp/);
+  assert.equal(/\bN\b/.test(msg), false);
+});
+
+test('amplicons too short for any tiling name the shortest that works', () => {
+  assert.match(buildProblem({ blocks: F })(200, 50), /shortest that works here is 270 bp/);
+  assert.match(buildProblem({ blocks: F })(250, 50), /shortest that works here is 270 bp/);
+  assert.equal(buildProblem({ blocks: F })(270, 50), '');
+});
+
+test('the binding span is the one that needs the longest amplicons', () => {
+  const blocks = [{ name: 'N', start: 1, end: 1285 }, ...F];
+  const msg = buildProblem({ blocks })(200, 50);
+  assert.match(msg, /cannot tile F/);     // 1,807 bp needs 270; N's 1,285 bp needs only 192
+  assert.equal(buildProblem({ blocks })(270, 50), '');
+});
+
+test('longer primers raise the amplicon length a span needs', () => {
+  assert.match(buildProblem({ blocks: F, primer_len_max: '30' })(270, 50),
+    /shortest that works here is 301 bp/);
+});
+
+test('an amplicon no longer than the overlap is still refused first', () => {
+  assert.match(buildProblem({ blocks: F })(50, 50), /must be greater than the minimum overlap/);
+  assert.match(buildProblem({ blocks: F })(0, 50), /must be greater than the minimum overlap/);
+});
+
+test('a span too short for one amplicon says so, instead of an amplicon length', () => {
+  assert.match(buildProblem({ blocks: [{ name: 'tiny', start: 1, end: 40 }] })(400, 0),
+    /^tiny is only 40 bp: too short for one amplicon with primers of up to 25 bases\.$/);
 });

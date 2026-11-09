@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PAD, achievedPad, ampliconCount, blockFromFeature, lossLimits, lossNotes, mergeBlocks,
-  smallestSpan, snapPosition,
+  PAD, achievedPad, ampliconCount, blockFromFeature, lossLimits, lossNotes, maxAmplicons,
+  mergeBlocks, minAmpliconLen, smallestSpan, snapPosition, targetLength,
 } from '../../vhirprimerlab/web/static/blocks.js';
 
 test('a block covers its feature with padding on both sides', () => {
@@ -192,4 +192,40 @@ test('merging a nested block keeps the padding of the block that spans it', () =
   const [m] = mergeBlocks([outer, inner]);
   assert.deepEqual([m.start, m.end], [1, 2000]);
   assert.deepEqual(achievedPad(m), { start: 100, end: 100 });
+});
+
+// ---- the amplicon length a span needs ------------------------------------------------------
+
+test('the most amplicons that fit matches the engine, single amplicons included', () => {
+  assert.equal(maxAmplicons(1807, 50, 25), 8);
+  assert.equal(maxAmplicons(1807, 120, 25), 5);
+  assert.equal(maxAmplicons(13232, 50, 25), 65);
+  // A span with room for exactly one amplicon: the neighbour rule does not apply to it.
+  assert.equal(maxAmplicons(64, 50, 25), 1);
+  assert.equal(maxAmplicons(63, 50, 25), 0);
+});
+
+test('the target amplicon length rounds as the engine rounds', () => {
+  assert.equal(targetLength(1807, 6, 50), 343);
+  assert.equal(targetLength(1807, 8, 50), 270);
+  assert.equal(targetLength(1807, 7, 120), 361);
+  assert.equal(targetLength(1807, 2, 50), 928);   // 928.5: Python's round() is half to even
+});
+
+test('the shortest amplicon length that tiles a span is the one the engine would accept', () => {
+  // hMPV's F block, 1,807 bp. At the default overlap 400 bp amplicons work and 250 bp do not;
+  // the boundary is 270, and at an overlap of 120 nothing under 458 bp can tile it at all.
+  const F = { name: 'F', start: 2812, end: 4618 };
+  assert.equal(F.end - F.start + 1, 1807);
+  assert.equal(minAmpliconLen(F, 50, 25), 270);
+  assert.equal(minAmpliconLen(F, 120, 25), 458);
+  assert.equal(minAmpliconLen(F, 0, 25), 130);
+  // One below the boundary needs more amplicons than the geometry allows.
+  assert.ok(ampliconCount(F, 270, 50) <= maxAmplicons(1807, 50, 25));
+  assert.ok(ampliconCount(F, 269, 50) > maxAmplicons(1807, 50, 25));
+});
+
+test('a span too short for even one amplicon has no amplicon length that works', () => {
+  assert.equal(minAmpliconLen({ start: 1, end: 40 }, 0, 25), 0);
+  assert.equal(minAmpliconLen({ start: 1, end: 64 }, 50, 25), 64);
 });
