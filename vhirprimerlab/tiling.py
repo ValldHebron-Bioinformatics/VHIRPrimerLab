@@ -44,6 +44,13 @@ def target_length(genome_len: int, n: int, overlap: int) -> int:
     return round((genome_len + (n - 1) * overlap) / n)
 
 
+def amplicons_for(span_len: int, amplicon_len: int, overlap: int) -> int:
+    """Fewest amplicons of amplicon_len, overlapping by overlap, that cover span_len."""
+    if amplicon_len <= overlap:
+        raise PipelineError("--amplicon-len must be larger than --overlap")
+    return max(1, math.ceil((span_len - overlap) / (amplicon_len - overlap)))
+
+
 def geometry(
     genome_len: int, n: int, overlap: int, tolerance: float, primer_len_max: int
 ) -> Geometry | None:
@@ -51,12 +58,15 @@ def geometry(
 
     Neighbours may overlap (outer primer edges) by at most half the shortest
     amplicon, which keeps amplicons k and k+2 (same pool) apart. That overlap must
-    still hold two primers plus the required insert overlap.
+    still hold two primers plus the required insert overlap. A single amplicon has
+    no neighbour, so it only needs to hold two primers and at least one base of insert.
     """
     target = target_length(genome_len, n, overlap)
     len_min = math.floor(target * (1 - tolerance))
     max_outer = (len_min - 1) // 2
-    if max_outer < overlap + 2 * primer_len_max:
+    if n > 1 and max_outer < overlap + 2 * primer_len_max:
+        return None
+    if n == 1 and len_min < 2 * primer_len_max + 1:
         return None
     return Geometry(
         target_len=target,
