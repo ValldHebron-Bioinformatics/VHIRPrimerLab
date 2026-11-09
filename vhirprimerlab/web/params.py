@@ -76,6 +76,11 @@ SETTINGS: dict[str, dict[str, tuple[str, object]]] = {
         "tile_regions": ("--tile-region", "regions"),
         "amplicon_len": ("--amplicon-len", int),
         "overlap": ("--overlap", int),
+        # The page pads each span around the feature the user clicked, and the engine measures
+        # these two from the padded edge, so it sends them equal to that padding: without them
+        # the default 50 demands a primer inside the padding and the span fails to tile.
+        "max_start_loss": ("--max-start-loss", int),
+        "max_end_loss": ("--max-end-loss", int),
         **_DESIGN,
     },
     "check": dict(_SHARED),

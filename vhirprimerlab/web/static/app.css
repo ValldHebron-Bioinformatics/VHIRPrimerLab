@@ -298,7 +298,7 @@ td.lead .sub { overflow-wrap: anywhere; }
 .map .feat:focus { outline: none; }
 .map .feat:hover rect, .map .feat:focus-visible rect { stroke: var(--ink); stroke-width: 2; }
 .map .block .bracket { fill: none; stroke: var(--ink); stroke-width: 2; }
-.map .block text { fill: var(--ink); font-weight: 500; }
+.map .block text { fill: var(--ink); font-weight: 500; pointer-events: none; }
 .map .block.sel .bracket { stroke: var(--data-deep); }
 .map .block.sel text { fill: var(--data-deep); }
 /* touch-action: none, or a drag on a touch screen scrolls the page instead of moving the edge */

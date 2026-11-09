@@ -524,7 +524,7 @@ git commit -m "feat(web): map record coordinates onto the reference with shared 
 - Produces:
   ```js
   parseLocation(text) -> { strand: '+' | '-', intervals: [[start, end], …] }  // 1-based, increasing
-  parseInsdseq(xmlText) -> { accession, organism, length, features }
+  parseInsdseq(xmlText) -> { accession, organism, length, sequence, features, skipped }
   parseGenbank(text)    -> the same shape
   fetchAnnotation(accession, { fetch, storage } = {}) -> Promise<annotation>
   MAX_RECORD_LENGTH = 500_000

@@ -77,6 +77,14 @@ def test_genes_mode_builds_tile_region_flags() -> None:
                     "--amplicon-len", "400"]
 
 
+def test_genes_mode_passes_the_padding_as_the_loss_limits() -> None:
+    """The page pads each span, and the engine measures the loss limits from the padded edge."""
+    argv = build_argv("genes", {"tile_regions": ["F:2912-4718"], "amplicon_len": 600,
+                                "overlap": 50, "max_start_loss": 100, "max_end_loss": 100})
+    assert argv == ["--tile-region", "F:2912-4718", "--amplicon-len", "600", "--overlap", "50",
+                    "--max-start-loss", "100", "--max-end-loss", "100"]
+
+
 def test_genes_mode_rejects_tiling_only_settings() -> None:
     with pytest.raises(ValueError, match="unknown setting"):
         build_argv("genes", {"amplicons": 4})

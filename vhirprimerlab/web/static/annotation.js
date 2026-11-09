@@ -7,7 +7,12 @@ export const MAX_RECORD_LENGTH = 500_000;
 const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 // The version is part of the key so a change to what is kept of a record (the kinds, the
 // sequence) cannot be masked by old entries.
-const CACHE_PREFIX = 'vhirprimerlab.annotation.v3.';
+const CACHE_ROOT = 'vhirprimerlab.annotation.';
+const CACHE_PREFIX = `${CACHE_ROOT}v3.`;
+// A record's bases dominate the size of an entry, and the quota is shared with the rest of the
+// app (the Basic/Advanced preference is in the same storage), so a big record is re-fetched
+// instead of cached.
+const CACHE_MAX_BASES = 100_000;
 const RETRY_WAITS = [1000, 3000];   // ms before the first and second retry
 
 // What a user can click to ask for primers. rRNA and the other RNAs are here because a
@@ -199,14 +204,34 @@ function defaultStorage() {
   try { return globalThis.localStorage ?? null; } catch { return null; }   // blocked storage throws
 }
 
+const swept = new WeakSet();   // one sweep per storage, however many records are read
+
+// Entries written by an earlier version of this cache can never be read again, and they are the
+// bulky ones, so they go the first time the cache is used.
+function sweepOldEntries(storage) {
+  try {
+    if (!storage || swept.has(storage)) return;
+    swept.add(storage);
+    const stale = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key && key.startsWith(CACHE_ROOT) && !key.startsWith(CACHE_PREFIX)) stale.push(key);
+    }
+    stale.forEach((key) => storage.removeItem(key));
+  } catch { /* the cache is optional */ }
+}
+
 function readCache(storage, key) {
   try {
+    sweepOldEntries(storage);
     const hit = JSON.parse(storage?.getItem(key));
     return hit && Array.isArray(hit.features) ? hit : null;
   } catch { return null; }
 }
 
 function writeCache(storage, key, annotation) {
+  // A cached record without its bases could not be mapped, so such a record is not cached at all.
+  if (annotation.sequence.length > CACHE_MAX_BASES) return;
   try { storage?.setItem(key, JSON.stringify(annotation)); } catch { /* the cache is optional */ }
 }
 

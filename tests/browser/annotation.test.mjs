@@ -304,3 +304,31 @@ ORIGIN
   assert.equal(a.features[0].name, 'W');
   assert.equal(parseGenbank(fixture('hmpv.gb')).sequence, '');   // its ORIGIN block is empty
 });
+
+test('entries from an older cache version are swept on first use', async () => {
+  const data = new Map([
+    ['vhirprimerlab.annotation.v2.NC_039199.1', '{"features":[]}'],
+    ['vhirprimerlab.annotation.NC_000001.1', 'older still'],
+    ['vhirprimerlab.level', 'advanced'],
+  ]);
+  const storage = {
+    get length() { return data.size; },
+    key: (i) => [...data.keys()][i] ?? null,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => data.set(k, v),
+    removeItem: (k) => data.delete(k),
+  };
+  await fetchAnnotation('NC_039199.1', { fetch: okFetch(hmpvXml), storage });
+  assert.deepEqual([...data.keys()].sort(),
+    ['vhirprimerlab.annotation.v3.NC_039199.1', 'vhirprimerlab.level']);
+});
+
+test('a record too big to cache is still returned, and not cached', async () => {
+  const xml = hmpvXml.replace('</INSDSeq_feature-table>',
+    `</INSDSeq_feature-table><INSDSeq_sequence>${'acgt'.repeat(30_000)}</INSDSeq_sequence>`);
+  const data = new Map();
+  const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
+  const a = await fetchAnnotation('NC_039199.1', { fetch: okFetch(xml), storage });
+  assert.equal(a.sequence.length, 120_000);
+  assert.equal(data.size, 0);
+});

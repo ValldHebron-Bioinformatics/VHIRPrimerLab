@@ -1,10 +1,9 @@
 /* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 import { buildAnchorMap } from './anchors.js';
 import { fetchAnnotation, parseGenbank } from './annotation.js';
-import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPosition } from './blocks.js';
+import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPosition } from './blocks.js';
 
 (() => {
-  'use strict';
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => Number(n).toLocaleString('en-US');
   const pct = (n) => `${Number(n).toFixed(Number(n) % 1 ? 1 : 0)} %`;
@@ -349,6 +348,12 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
   };
   const GRID = 10;                 // a drag that lands near no feature edge snaps to this
   const minSpan = () => smallestSpan(num('primer_len_max') || 25);
+  // A clicked feature is padded by PAD (the anchor map's error) plus the engine's end-loss
+  // allowance. The engine measures --max-start-loss / --max-end-loss from the padded edge, so
+  // the run sends this same padding as both limits: it may then lose at most the padding, which
+  // lands exactly on the feature's own edge, and it has that much room to find a primer there.
+  const END_LOSS = 50;
+  const PADDING = PAD + END_LOSS;
   let plot = null;                 // the last draw's geometry, so a drag can read bases off pixels
 
   function genomeError(message) {
@@ -382,12 +387,22 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
     return { convert: (pos) => pos, G: Math.max(1, (g.ann && g.ann.length) || g.refLen), record: true };
   }
 
-  function featureDetail(f, start, end, off) {
+  function featureDetail(f, start, end, why) {
     const parts = [f.name];
     if (f.product && f.product !== f.name) parts.push(f.product);
     parts.push(f.kind, `${fmt(start)}–${fmt(end)} (${fmt(end - start + 1)} bp)`, `${f.strand} strand`);
-    if (off) parts.push('outside the part of the record your sequences cover');
+    if (why) parts.push(why);
     return parts.join(' · ');
+  }
+
+  // Why the map cannot place a feature, or '' when it can. Under a trusted map that is the part
+  // of the record the anchors do not reach. Under the record's own ruler it is anything running
+  // past the end of the reference: the spans are clamped to the reference, so such a feature
+  // would come out as a short span at the reference's end, unrelated to what was clicked.
+  function unplaced(f, map, record, refLen) {
+    if (record) return f.end > refLen ? 'past the end of your reference' : '';
+    return f.end < map.mappedRange[0] || f.start > map.mappedRange[1]
+      ? 'outside the part of the record your sequences cover' : '';
   }
 
   function drawGenome(ann, map, blocks) {
@@ -431,12 +446,11 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
     }
     ann.features.forEach((f, i) => {
       const y = band + rowOf.get(laneOf(f)) * (laneH + laneGap);
-      // Greying only means something under a trusted map; under the record's own ruler every
-      // feature is equally unplaced, and the note already says so.
-      const off = !record && (f.end < map.mappedRange[0] || f.start > map.mappedRange[1]);
+      const why = unplaced(f, map, record, state.genome.refLen);
+      const off = Boolean(why);
       const start = convert(f.start);
       const end = convert(f.end);
-      const detail = featureDetail(f, start, end, off);
+      const detail = featureDetail(f, start, end, why);
       const g = el('g', {
         class: `feat ${LANES[laneOf(f)].cls}${off ? ' off' : ''}`,
         tabindex: off ? -1 : 0,
@@ -477,7 +491,8 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
         const handle = el('rect', {
           class: 'handle', x: hx - 5, y: band - 18, width: 10, height: 16, rx: 2,
           tabindex: 0, 'data-block': i, 'data-edge': edge,
-          'aria-label': `Move the ${edge} of ${b.name}, now ${fmt(at)}. Left and right arrows move it.`,
+          'aria-label': `Move the ${edge} of ${b.name}, now ${fmt(at)}. `
+            + 'Left and right arrows move it 10 bp, or 100 bp with Shift.',
         }, g);
         handle.addEventListener('pointerdown', (e) => startDrag(e, i, edge));
         handle.addEventListener('keydown', (e) => nudge(e, i, edge));
@@ -520,10 +535,21 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
   function addBlock(feature) {
     const g = state.genome;
     const name = freeName(spanName(feature.name), new Set(g.blocks.map((b) => b.name)));
-    const block = blockFromFeature({ ...feature, name }, {
-      convert: axis().convert, limit: g.refLen, minSpan: minSpan(),
-    });
+    const least = minSpan();
+    const how = { convert: axis().convert, limit: g.refLen, pad: PAD, endLoss: END_LOSS };
+    const block = blockFromFeature({ ...feature, name }, { ...how, minSpan: least });
+    // A short feature is widened to the smallest span the primer settings allow, which the user
+    // has to be told: the span they get is wider than the gene they clicked.
+    const padded = blockFromFeature({ ...feature, name }, how);
+    const grew = (block.end - block.start) - (padded.end - padded.start);
     commitBlocks([...g.blocks, block]);
+    if (grew > 0) {
+      const widened = `${name} is short: with its padding it spans `
+        + `${fmt(padded.end - padded.start + 1)} bp, so it was widened by ${fmt(grew)} bp to the `
+        + `${fmt(least)} bp the engine needs for one amplicon.`;
+      g.note = g.note ? `${g.note} ${widened}` : widened;
+      renderBlocks();
+    }
     selectBlock(g.blocks.findIndex((b) => b.start <= block.start && b.end >= block.end));
   }
 
@@ -579,9 +605,13 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
     if (g.note) lines.push(g.note);
     const bad = Boolean(g.blocks.length) && (!sane || over);
     const note = $('blocks-note');
-    note.textContent = lines.join(' ');
-    note.classList.toggle('error', bad);
-    note.classList.toggle('help', !bad);
+    // A drag rebuilds this list on every pointer move, and the note is a live region: leaving it
+    // alone until the drag ends spares a screen reader one announcement per pixel.
+    if (!g.drag) {
+      note.textContent = lines.join(' ');
+      note.classList.toggle('error', bad);
+      note.classList.toggle('help', !bad);
+    }
     $('block-controls').hidden = false;
   }
 
@@ -743,27 +773,33 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
     $('genome-verdict').textContent = `Asking NCBI for ${id}…`;
     const token = {};
     g.pending = token;
-    try {
-      const ann = await fetchAnnotation(id);
-      if (g.pending !== token) return;   // the user picked something else meanwhile
-      useAnnotation(ann);
+    let ann;
+    try {   // only the fetch: a drawing fault must not be reported as an NCBI failure
+      ann = await fetchAnnotation(id);
     } catch (err) {
       if (g.pending !== token) return;
       genomeError(err.message);
       $('genome-verdict').textContent = 'Pick the organism your sequences come from to see its genes.';
+      return;
     }
+    if (g.pending !== token) return;   // the user picked something else meanwhile
+    useAnnotation(ann);
   }
 
   async function loadGenbankFile(file) {
     if (!file) return;
     $('organism').value = '';
     state.genome.pending = null;
+    let ann;
     try {
-      useAnnotation(parseGenbank(await file.text()));
+      ann = parseGenbank(await file.text());
     } catch (err) {
       genomeError(err.message);
+      $('genbank').value = '';
+      return;
     }
     $('genbank').value = '';
+    useAnnotation(ann);
   }
 
   ORGANISMS.forEach((o) => $('organism').add(new Option(`${o.label} — ${o.accession}`, o.accession)));
@@ -1267,6 +1303,11 @@ import { ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPositio
       out.tile_regions = state.genome.blocks.map((b) => `${b.name}:${b.start}-${b.end}`);
       out.amplicon_len = Math.round(num('amplicon_len'));
       out.overlap = Math.round(num('gene_overlap'));
+      // Both limits are the block padding, from the same constant the padding comes from: the
+      // engine measures them from the padded edge, so anything smaller demands a primer inside
+      // the padding and refuses a perfectly good one that sits before the feature itself.
+      out.max_start_loss = PADDING;
+      out.max_end_loss = PADDING;
     }
     if (!advanced()) return out; // Basic: the recommended settings
     if (m === 'regions') {
