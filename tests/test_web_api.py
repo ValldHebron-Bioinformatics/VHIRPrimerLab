@@ -178,3 +178,13 @@ def test_delete_cancels_a_job(tmp_path: Path) -> None:
         assert c.get(f"/api/jobs/{job}").json()["status"] == "failed"
         assert c.delete(f"/api/jobs/{'a' * 32}").status_code == 404
         assert c.delete("/api/jobs/not-a-job").status_code == 404
+
+
+def test_a_genes_job_reads_the_amplicon_table(tmp_path: Path) -> None:
+    from vhirprimerlab.web.result import build_result
+
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "amplicons.tsv").write_text("amplicon\tstart\n1\t1\n")
+    res = build_result(tmp_path, ["-i", "input.fasta", "--tile-region", "F:1-900"], 0)
+    assert res["mode"] == "tile"
+    assert len(res["rows"]) == 1

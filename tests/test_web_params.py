@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from vhirprimerlab.web.params import Limits, build_argv, validate_upload
+from vhirprimerlab.web.prepare import prepare_job
 
 
 def test_tile_argv() -> None:
@@ -67,3 +68,27 @@ def test_limits_from_env(monkeypatch) -> None:
 def test_non_finite_numbers_rejected(value) -> None:
     with pytest.raises(ValueError, match="number"):
         build_argv("tile", {"max_tm_diff": value})
+
+
+def test_genes_mode_builds_tile_region_flags() -> None:
+    argv = build_argv("genes", {"tile_regions": ["F:3012-4631", "L:7074-13090"],
+                                "amplicon_len": 400})
+    assert argv == ["--tile-region", "F:3012-4631", "--tile-region", "L:7074-13090",
+                    "--amplicon-len", "400"]
+
+
+def test_genes_mode_rejects_tiling_only_settings() -> None:
+    with pytest.raises(ValueError, match="unknown setting"):
+        build_argv("genes", {"amplicons": 4})
+
+
+def test_genes_mode_needs_at_least_one_region(tmp_path: Path) -> None:
+    fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
+    with pytest.raises(ValueError, match="Pick at least one region"):
+        prepare_job("genes", {"tile_regions": []}, fasta, "", Limits(), ["mafft"])
+
+
+def test_genes_mode_refuses_a_span_past_the_sequence(tmp_path: Path) -> None:
+    fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
+    with pytest.raises(ValueError, match="ends at 1,200"):
+        prepare_job("genes", {"tile_regions": ["F:100-1200"]}, fasta, "", Limits(), ["mafft"])

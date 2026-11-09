@@ -11,7 +11,7 @@ from vhirprimerlab.io import load_fasta
 from vhirprimerlab.lengths import ungapped_length
 from vhirprimerlab.models import PipelineError
 
-MODES = ("tile", "regions", "check")
+MODES = ("tile", "regions", "check", "genes")
 
 
 @dataclass(frozen=True)
@@ -70,6 +70,12 @@ SETTINGS: dict[str, dict[str, tuple[str, object]]] = {
         "amplicon_min": ("--amplicon-min", int),
         "amplicon_max": ("--amplicon-max", int),
         "allow_degenerate": ("--allow-degenerate", "bool_on"),
+        **_DESIGN,
+    },
+    "genes": {
+        "tile_regions": ("--tile-region", "regions"),
+        "amplicon_len": ("--amplicon-len", int),
+        "overlap": ("--overlap", int),
         **_DESIGN,
     },
     "check": dict(_SHARED),

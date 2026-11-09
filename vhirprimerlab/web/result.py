@@ -40,7 +40,7 @@ def build_result(job_dir: Path, argv: list[str], code: int) -> dict:
     log = job_dir / "log.txt"
     lines = log.read_text().splitlines() if log.is_file() else []
     out = job_dir / "out"
-    mode = "check" if argv[:1] == ["check"] else "tile" if "-n" in argv else "regions"
+    mode = "check" if argv[:1] == ["check"] else "tile" if "-n" in argv or "--tile-region" in argv else "regions"
     table = out / {"check": "check.tsv", "tile": "amplicons.tsv", "regions": "pairs.tsv"}[mode]
     errors = [ln[len("ERROR: "):] for ln in lines if ln.startswith("ERROR: ")]
     usage = [ln.split("error: ", 1)[1] for ln in lines if "error: " in ln and ln.startswith("vhirprimerlab")]
