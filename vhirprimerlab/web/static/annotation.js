@@ -230,8 +230,10 @@ function readCache(storage, key) {
 }
 
 function writeCache(storage, key, annotation) {
-  // A cached record without its bases could not be mapped, so such a record is not cached at all.
-  if (annotation.sequence.length > CACHE_MAX_BASES) return;
+  // A cached record without its bases could not be mapped, and would come back from the cache
+  // unmappable for ever, so such a record is not cached at all. Nor is a big one: its bases
+  // dominate the entry and the quota is shared with the rest of the app.
+  if (!annotation.sequence || annotation.sequence.length > CACHE_MAX_BASES) return;
   try { storage?.setItem(key, JSON.stringify(annotation)); } catch { /* the cache is optional */ }
 }
 

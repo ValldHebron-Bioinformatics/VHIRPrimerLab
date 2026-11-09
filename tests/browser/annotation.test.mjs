@@ -11,6 +11,11 @@ const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta
 const hmpvXml = fixture('NC_039199.xml');
 const giardiaXml = fixture('parasite-gene.xml');
 const bigRecordXml = hmpvXml.replace('<INSDSeq_length>13350<', '<INSDSeq_length>600000<');
+// The fixture carries no INSDSeq_sequence, and a record without its bases is never cached:
+// the cache tests below need one that is cacheable.
+const withBases = (bases) => hmpvXml.replace('</INSDSeq_feature-table>',
+  `</INSDSeq_feature-table><INSDSeq_sequence>${bases}</INSDSeq_sequence>`);
+const hmpvCacheable = withBases('acgtacgtac');
 // A fetch that answers esummary with `slen` (or a 404 when undefined) and efetch with `efetch`.
 const route = (efetch, slen) => async (url) => {
   if (url.includes('esummary')) {
@@ -205,7 +210,7 @@ test('a second request is served from the cache, whatever the accession case', a
   const data = new Map();
   const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
   let calls = 0;
-  const fetch = route(async () => { calls++; return { ok: true, text: async () => hmpvXml }; });
+  const fetch = route(async () => { calls++; return { ok: true, text: async () => hmpvCacheable }; });
   const first = await fetchAnnotation('nc_039199.1', { fetch, storage });
   const second = await fetchAnnotation('NC_039199.1', { fetch, storage });
   assert.equal(calls, 1);
@@ -319,7 +324,7 @@ test('entries from an older cache version are swept on first use', async () => {
     setItem: (k, v) => data.set(k, v),
     removeItem: (k) => data.delete(k),
   };
-  await fetchAnnotation('NC_039199.1', { fetch: okFetch(hmpvXml), storage });
+  await fetchAnnotation('NC_039199.1', { fetch: okFetch(hmpvCacheable), storage });
   assert.deepEqual([...data.keys()].sort(),
     ['vhirprimerlab.annotation.v3.NC_039199.1', 'vhirprimerlab.level']);
 });
@@ -484,3 +489,20 @@ function tooLongError() {
   return new Error('NC_000913.3 is 4,641,652 nt, over the 500,000 nt limit. '
     + 'Use a gene record instead of a chromosome.');
 }
+
+test('a record that came without its bases is not cached', async () => {
+  // The anchor map needs the bases; an entry without them would be returned from the cache for
+  // ever, and the organism could never be drawn. The hMPV fixture carries no INSDSeq_sequence.
+  const data = new Map();
+  const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v) };
+  let calls = 0;
+  const fetch = route(async () => { calls += 1; return { ok: true, text: async () => hmpvXml }; });
+  const first = await fetchAnnotation('NC_039199.1', { fetch, storage });
+  assert.equal(first.sequence, '');
+  assert.equal(data.size, 0);
+  const again = await fetchAnnotation('NC_039199.1',
+    { fetch: route(async () => ({ ok: true, text: async () => hmpvCacheable })), storage });
+  assert.equal(again.sequence, 'ACGTACGTAC');   // asked again, and cacheable this time
+  assert.equal(data.size, 1);
+  assert.equal(calls, 1);
+});
