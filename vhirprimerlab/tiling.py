@@ -97,7 +97,7 @@ def choose(
     n: int,
     geom: Geometry,
     params: TilingParams,
-    genome_len: int,
+    span: tuple[int, int],
 ) -> Path_ | None:
     """Exactly n amplicons in genome order maximising the worst coverage, then the sum.
 
@@ -136,8 +136,8 @@ def choose(
         preds.append([ri for ri in range(lo, hi)
                       if revs[ri].end - f.start + 1 <= geom.max_outer_overlap])
 
-    first_ok = [end_loss(f, genome_len) <= params.max_start_loss for f in fwds]
-    last_ok = [end_loss(r, genome_len) <= params.max_end_loss for r in revs]
+    first_ok = [end_loss(f, span) <= params.max_start_loss for f in fwds]
+    last_ok = [end_loss(r, span) <= params.max_end_loss for r in revs]
 
     def run(t: int) -> Path_ | None:
         # layer value: (sum of coverage, sum of primer matches, -bases before the first
@@ -171,7 +171,7 @@ def choose(
             back.append(layer)
             if not value:
                 return None
-        ends = [((v[0], v[1], v[2] - (genome_len - 1 - revs[ri].end), v[3]), ri)
+        ends = [((v[0], v[1], v[2] - (span[1] - revs[ri].end), v[3]), ri)
                 for ri, v in value.items() if last_ok[ri]]
         if not ends:
             return None
@@ -237,18 +237,18 @@ def _worst_coverage(path: Path_) -> int:
     return min(_popcount(f.mask & r.mask) for f, r in path)
 
 
-def _choose_any(fwds, revs, n, geoms, params, genome_len, banned: set[Key]):
+def _choose_any(fwds, revs, n, geoms, params, span, banned: set[Key]):
     """choose() at the first length tolerance that works, skipping banned primers."""
     fwds = [c for c in fwds if _key(c) not in banned]
     revs = [c for c in revs if _key(c) not in banned]
     for geom in geoms:
-        path = choose(fwds, revs, n, geom, params, genome_len)
+        path = choose(fwds, revs, n, geom, params, span)
         if path:
             return path, geom
     return None, geoms[-1]
 
 
-def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, genome_len):
+def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, span):
     """Swap out primers that form dimers within a pool, when that costs no coverage.
 
     For the first dimer pair not yet given up on, the tiling is chosen again without
@@ -271,7 +271,7 @@ def _avoid_dimers(path: Path_, geom: Geometry, fwds, revs, n, geoms, params, gen
         a, b = todo[0][4], todo[0][5]
         order = sorted((a, b), key=lambda c: (-counts[_key(c)], -c.penalty))
         for c in order:
-            trial, trial_geom = _choose_any(fwds, revs, n, geoms, params, genome_len,
+            trial, trial_geom = _choose_any(fwds, revs, n, geoms, params, span,
                                             banned | {_key(c)})
             if trial is None or _worst_coverage(trial) < _worst_coverage(path):
                 continue
@@ -297,22 +297,24 @@ def _ref(cmap: CoordMap, cons: Consensus, pos: int, side: str) -> int | None:
 
 
 def _no_fit(
-    fwds, revs, n: int, genome_len: int, params: TilingParams, cons: Consensus, cmap: CoordMap
+    fwds, revs, n: int, span: tuple[int, int], params: TilingParams, cons: Consensus, cmap: CoordMap
 ) -> PipelineError:
     """Explain why no tiling exists: a genome end out of reach, or the longest primer-free
     stretch and N values that work."""
+    genome_len = span[1] - span[0] + 1
+    what = "genome" if span == (0, len(cons.seq) - 1) else "span"
     for side, strand, cands in (("start", "+", fwds), ("end", "-", revs)):
         limit = loss_limit(params, strand)
-        closest = min((end_loss(c, genome_len) for c in cands), default=genome_len)
+        closest = min((end_loss(c, span) for c in cands), default=genome_len)
         if closest > limit:
             return PipelineError(
                 f"No tiling with {n} amplicons: no acceptable primer within {limit} nt of the "
-                f"genome {side} (the closest leaves {closest:,} nt out); "
+                f"{what} {side} (the closest leaves {closest:,} nt out); "
                 f"set --max-{side}-loss to {closest:,} or more"
             )
     sites = sorted((c.start, c.end) for c in fwds + revs)
-    gap, prev_end = (0, -1, -1), -1
-    for start, end in sites + [(genome_len, genome_len)]:
+    gap, prev_end = (0, span[0] - 1, span[0] - 1), span[0] - 1
+    for start, end in sites + [(span[1] + 1, span[1] + 1)]:
         if start - prev_end - 1 > gap[0]:
             gap = (start - prev_end - 1, prev_end + 1, start - 1)
         prev_end = max(prev_end, end)
@@ -324,7 +326,7 @@ def _no_fit(
     works: list[str] = []
     for m in dict.fromkeys(m for m in tries if 1 <= m <= limit and m != n):
         g = geometry(genome_len, m, params.overlap, TOLERANCES[-1], params.len_max)
-        if g and choose(fwds, revs, m, g, params, genome_len):
+        if g and choose(fwds, revs, m, g, params, span):
             works.append(str(m))
             if len(works) == 3:
                 break
@@ -341,10 +343,12 @@ def tile(
     cmap: CoordMap,
     params: TilingParams,
     progress: Progress | None = None,
+    span: tuple[int, int] | None = None,
 ) -> TilingResult:
-    """Choose params.n_amplicons overlapping amplicons covering the whole consensus."""
+    """Choose params.n_amplicons overlapping amplicons covering span (default: the whole consensus)."""
     report = progress or (lambda stage, fraction: None)
-    n, genome_len = params.n_amplicons, len(cons.seq)
+    span = span or (0, len(cons.seq) - 1)
+    n, genome_len = params.n_amplicons, span[1] - span[0] + 1
     geoms = [g for tol in TOLERANCES
              if (g := geometry(genome_len, n, params.overlap, tol, params.len_max))]
     if not geoms:
@@ -357,20 +361,20 @@ def tile(
                     geoms[0].target_len)
 
     report("finding primers", 0.10)
-    raw_f, raw_r = enumerate_primers(cons.seq, params)
+    raw_f, raw_r = enumerate_primers(cons.seq, params, span)
     picked = pick_conserved(raw_f, stats, cons, params) + pick_conserved(raw_r, stats, cons, params)
     scored = score_primers(picked, aln, cons, params,
-                           progress=lambda stage, f: report(stage, 0.15 + 0.65 * f))
+                           progress=lambda stage, f: report(stage, 0.15 + 0.65 * f), span=span)
     fwds = [c for c in scored if c.strand == "+"]
     revs = [c for c in scored if c.strand == "-"]
     log.info("Candidate primers: %d forward, %d reverse", len(fwds), len(revs))
 
     report("choosing amplicons", 0.85)
-    path, geom = _choose_any(fwds, revs, n, geoms, params, genome_len, set())
+    path, geom = _choose_any(fwds, revs, n, geoms, params, span, set())
     if not path:
-        raise _no_fit(fwds, revs, n, genome_len, params, cons, cmap)
+        raise _no_fit(fwds, revs, n, span, params, cons, cmap)
     report("checking primer dimers", 0.90)
-    path, geom = _avoid_dimers(path, geom, fwds, revs, n, geoms, params, genome_len)
+    path, geom = _avoid_dimers(path, geom, fwds, revs, n, geoms, params, span)
     if geom.tolerance != TOLERANCES[0]:
         log.warning("Used ±%d %% amplicon length tolerance (no tiling within ±%d %%)",
                     round(geom.tolerance * 100), round(TOLERANCES[0] * 100))
@@ -386,5 +390,9 @@ def tile(
         ))
     first = _ref(cmap, cons, path[0][0].end + 1, "start")
     last = _ref(cmap, cons, path[-1][1].start - 1, "end")
-    ends = (first - 1 if first else 0, cmap.ref_length - last if last else 0)
+    # the genome's own ends bound a span that reaches them
+    span_first = 1 if span[0] == 0 else _ref(cmap, cons, span[0], "start")
+    span_last = cmap.ref_length if span[1] == len(cons.seq) - 1 else _ref(cmap, cons, span[1], "end")
+    ends = (first - span_first if first and span_first else 0,
+            span_last - last if last and span_last else 0)
     return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path), ends)

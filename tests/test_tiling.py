@@ -55,7 +55,7 @@ def test_choose_maximises_worst_amplicon() -> None:
     revs = [_p("-", 480, 10), _p("-", 600, 8), _p("-", 960, 10)]
     # path A: f0-r480 (10) then f350-r960 (7): sum 17, worst 7
     # path B: f0-r600 (8)  then f450-r960 (8): sum 16, worst 8  <- expected
-    path = choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000)
+    path = choose(fwds, revs, 2, geom, _params(n_amplicons=2), (0, 999))
     assert [(f.start, r.start) for f, r in path] == [(0, 600), (450, 960)]
 
 
@@ -63,7 +63,7 @@ def test_choose_returns_none_when_no_tiling() -> None:
     geom = geometry(1000, 2, 50, 0.20, 25)
     fwds = [_p("+", 0, 10)]
     revs = [_p("-", 480, 10), _p("-", 960, 10)]
-    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000) is None
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), (0, 999)) is None
 
 
 # --- tile() on the genome family ---------------------------------------------------
@@ -96,18 +96,18 @@ def test_choose_needs_primers_within_the_end_limits() -> None:
     geom = geometry(1000, 2, 50, 0.20, 25)
     fwds = [_p("+", 0, 10), _p("+", 450, 10)]  # first insert starts 20 nt in
     revs = [_p("-", 600, 10), _p("-", 960, 10)]  # last insert ends 40 nt before the end
-    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000)
-    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_end_loss=39), 1000) is None
-    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_start_loss=19), 1000) is None
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), (0, 999))
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_end_loss=39), (0, 999)) is None
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2, max_start_loss=19), (0, 999)) is None
 
 
 def test_the_two_end_limits_are_independent() -> None:
     geom = geometry(1000, 2, 50, 0.20, 25)
     fwds = [_p("+", 100, 10), _p("+", 450, 10)]  # first insert starts 120 nt in
     revs = [_p("-", 600, 10), _p("-", 960, 10)]  # last insert ends 40 nt before the end
-    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000) is None
+    assert choose(fwds, revs, 2, geom, _params(n_amplicons=2), (0, 999)) is None
     loose = _params(n_amplicons=2, max_start_loss=120)
-    assert choose(fwds, revs, 2, geom, loose, 1000)
+    assert choose(fwds, revs, 2, geom, loose, (0, 999))
 
 
 def test_choose_prefers_primers_that_match_on_their_own() -> None:
@@ -117,7 +117,7 @@ def test_choose_prefers_primers_that_match_on_their_own() -> None:
     weak, strong = _p("+", 440, 5), _p("+", 450, 10)
     fwds = [_p("+", 0, 10), weak, strong]
     revs = [_p("-", 600, 10), _p("-", 960, 5)]
-    path = choose(fwds, revs, 2, geom, _params(n_amplicons=2), 1000)
+    path = choose(fwds, revs, 2, geom, _params(n_amplicons=2), (0, 999))
     assert path[1][0] is strong
 
 
@@ -151,8 +151,8 @@ def test_n1_single_amplicon() -> None:
 def test_widening_reported(family, monkeypatch, caplog) -> None:
     real = tiling.choose
 
-    def strict_fails(fwds, revs, n, geom, params, genome_len):
-        return None if geom.tolerance == 0.20 else real(fwds, revs, n, geom, params, genome_len)
+    def strict_fails(fwds, revs, n, geom, params, span):
+        return None if geom.tolerance == 0.20 else real(fwds, revs, n, geom, params, span)
 
     monkeypatch.setattr(tiling, "choose", strict_fails)
     with caplog.at_level(logging.INFO, logger="vhirprimerlab"):
@@ -189,7 +189,7 @@ def test_choose_prefers_reaching_the_ends() -> None:
     # primers at the very ends have a worse penalty; reaching the ends must still win
     fwds = [dataclasses.replace(_p("+", 0, 10), penalty=1.0), _p("+", 150, 10)]
     revs = [_p("-", 830, 10), dataclasses.replace(_p("-", 980, 10), penalty=1.0)]
-    path = choose(fwds, revs, 1, geom, _params(n_amplicons=1), 1000)
+    path = choose(fwds, revs, 1, geom, _params(n_amplicons=1), (0, 999))
     assert [(f.start, r.start) for f, r in path] == [(0, 980)]
 
 
@@ -237,9 +237,9 @@ def test_avoid_dimers_swaps_out_a_dimer_primer(monkeypatch) -> None:
     monkeypatch.setattr(tiling, "dimer_dg", _c_sticks)
     geom, fwds, revs = _dimer_setup(alt_bits=10)
     params = _params(n_amplicons=1, max_start_loss=150)  # the alternative starts at 100
-    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, 1000, set())
+    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, (0, 999), set())
     assert path[0][0].start == 0 and tiling._dimers(path)
-    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, 1000)
+    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, (0, 999))
     assert path[0][0].start == 100
     assert tiling._dimers(path) == []
 
@@ -248,7 +248,28 @@ def test_avoid_dimers_keeps_pair_when_swap_loses_coverage(monkeypatch) -> None:
     monkeypatch.setattr(tiling, "dimer_dg", _c_sticks)
     geom, fwds, revs = _dimer_setup(alt_bits=6)  # the alternative covers fewer sequences
     params = _params(n_amplicons=1)
-    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, 1000, set())
-    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, 1000)
+    path, g = tiling._choose_any(fwds, revs, 1, [geom], params, (0, 999), set())
+    path, g = tiling._avoid_dimers(path, g, fwds, revs, 1, [geom], params, (0, 999))
     assert path[0][0].start == 0
     assert tiling._dimers(path) == ["pool 1: VHIRPrimerLab_1_LEFT × VHIRPrimerLab_1_RIGHT ΔG -12.0 kcal/mol"]
+
+
+def test_tile_within_a_span_stays_inside_it(family) -> None:
+    aln, cons, stats, cmap = family
+    result = tile(aln, cons, stats, cmap, _params(n_amplicons=2), span=(1000, 2999))
+    for a in result.amplicons:
+        assert a.fwd.start >= 1000 and a.rev.end <= 2999
+    assert len(result.amplicons) == 2
+
+
+def test_the_span_edges_carry_the_end_rules(family) -> None:
+    aln, cons, stats, cmap = family
+    result = tile(aln, cons, stats, cmap, _params(n_amplicons=2), span=(1000, 2999))
+    assert result.amplicons[0].fwd.end + 1 - 1000 <= 50
+    assert 2999 + 1 - result.amplicons[-1].rev.start <= 50
+
+
+def test_a_span_with_no_primers_names_the_span_edge(family) -> None:
+    aln, cons, stats, cmap = family
+    with pytest.raises(PipelineError, match="of the span start"):
+        tile(aln, cons, stats, cmap, _params(n_amplicons=1, max_start_loss=0), span=(1000, 2999))
