@@ -90,6 +90,17 @@ def max_amplicons(genome_len: int, overlap: int, primer_len_max: int) -> int:
     return best
 
 
+def min_amplicon_len(span_len: int, overlap: int, primer_len_max: int) -> int:
+    """Shortest --amplicon-len that still tiles span_len, or 0 when none does.
+
+    Tiling a span derives N from --amplicon-len, so this is the number to name when the
+    amplicons come out too short: fewer amplicons are longer, so the most the geometry
+    allows is the fewest the span can be cut into, and this length asks for that many.
+    """
+    most = max_amplicons(span_len, overlap, primer_len_max)
+    return overlap + max(1, math.ceil((span_len - overlap) / most)) if most else 0
+
+
 def _popcount(x: int) -> int:
     return bin(x).count("1")
 
@@ -329,16 +340,25 @@ def _no_fit(
     limit = max_amplicons(genome_len, params.overlap, params.len_max)
     # a primer-free stretch is bridged by fewer, longer amplicons: look below n first
     tries = [n - 1, n - 2, n - 3, n // 2, n // 3, n // 4, n + 1, n + 2, n + 3]
-    works: list[str] = []
+    works: list[int] = []
     for m in dict.fromkeys(m for m in tries if 1 <= m <= limit and m != n):
         g = geometry(genome_len, m, params.overlap, TOLERANCES[-1], params.len_max)
         if g and choose(fwds, revs, m, g, params, span):
-            works.append(str(m))
+            works.append(m)
             if len(works) == 3:
                 break
-    hint = ", ".join(works) if works else "a different value"
+    if what == "span":
+        # Over a span N is derived from --amplicon-len, so naming N would name a number the
+        # caller never chose. Each N that works is offered as the shortest amplicon length that
+        # asks for exactly that many, and only when it really does.
+        lens = [str(length) for m in works
+                if (length := params.overlap + math.ceil((genome_len - params.overlap) / m))
+                > params.overlap and amplicons_for(genome_len, length, params.overlap) == m]
+        advice = f"try --amplicon-len {', '.join(lens) if lens else 'a different value'}"
+    else:
+        advice = f"try -n {', '.join(str(m) for m in works) if works else 'a different value'}"
     return PipelineError(
-        f"No tiling with {n} amplicons: no acceptable primers between {a:,} and {b:,}; try -n {hint}"
+        f"No tiling with {n} amplicons: no acceptable primers between {a:,} and {b:,}; {advice}"
     )
 
 
@@ -358,9 +378,23 @@ def tile(
     geoms = [g for tol in TOLERANCES
              if (g := geometry(genome_len, n, params.overlap, tol, params.len_max))]
     if not geoms:
+        target = target_length(genome_len, n, params.overlap)
+        if span == (0, len(cons.seq) - 1):
+            raise PipelineError(
+                f"N too large: amplicons would be ~{target} bp; "
+                f"use at most {max_amplicons(genome_len, params.overlap, params.len_max)}"
+            )
+        # Over a span N came from --amplicon-len, so that is the flag to name.
+        least = min_amplicon_len(genome_len, params.overlap, params.len_max)
+        if not least:
+            raise PipelineError(
+                f"this {genome_len:,} bp span is too short for one amplicon with primers of up "
+                f"to {params.len_max} bases"
+            )
         raise PipelineError(
-            f"N too large: amplicons would be ~{target_length(genome_len, n, params.overlap)} bp; "
-            f"use at most {max_amplicons(genome_len, params.overlap, params.len_max)}"
+            f"--amplicon-len {params.amplicon_len} gives {n} amplicons of ~{target} bp here, too "
+            f"short to hold two primers and a {params.overlap} bp overlap; use "
+            f"--amplicon-len {least} or more"
         )
     if geoms[0].target_len > LONG_AMPLICON:
         log.warning("Amplicons will be ~%d bp; long PCRs are harder (try a larger -n)",

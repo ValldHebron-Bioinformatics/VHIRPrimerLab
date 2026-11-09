@@ -341,3 +341,42 @@ def test_tile_spans_names_the_failing_span(family) -> None:
     # default end/start loss of 50 cannot be met at the SH start in this fixture
     with pytest.raises(PipelineError, match="Region 'SH'"):
         tile_spans(aln, cons, stats, cmap, _params(amplicon_len=700), [Region("SH", 4001, 4600)])
+
+
+# --- span mode talks about --amplicon-len, the flag it derives N from -------------------
+
+def test_min_amplicon_len_is_the_shortest_that_still_tiles() -> None:
+    # One shorter always needs more amplicons than the geometry allows.
+    for span_len, overlap in ((1807, 50), (1807, 120), (2000, 50), (13232, 50)):
+        least = tiling.min_amplicon_len(span_len, overlap, 25)
+        n = tiling.amplicons_for(span_len, least, overlap)
+        assert tiling.geometry(span_len, n, overlap, tiling.TOLERANCES[0], 25) is not None
+        worse = tiling.amplicons_for(span_len, least - 1, overlap)
+        assert tiling.geometry(span_len, worse, overlap, tiling.TOLERANCES[0], 25) is None
+    assert tiling.min_amplicon_len(1807, 50, 25) == 270
+    assert tiling.min_amplicon_len(1807, 120, 25) == 458
+    assert tiling.min_amplicon_len(40, 0, 25) == 0      # too short for even one amplicon
+
+
+def test_span_geometry_error_names_the_amplicon_length(family) -> None:
+    aln, cons, stats, cmap = family
+    with pytest.raises(PipelineError) as exc:
+        tile_spans(aln, cons, stats, cmap, _params(amplicon_len=200), [Region("F", 1001, 3000)])
+    msg = str(exc.value)
+    assert "--amplicon-len 267 or more" in msg
+    assert "-n" not in msg and "use at most" not in msg
+
+
+def test_whole_genome_geometry_error_still_names_n(family) -> None:
+    with pytest.raises(PipelineError, match="N too large: amplicons would be"):
+        tile(*family, _params(n_amplicons=40))
+
+
+def test_span_no_fit_suggests_an_amplicon_length(family) -> None:
+    rows = [(i, s[:1400] + "A" * 2000 + s[3400:]) for i, s in make_genome_family()]
+    aln, cons, stats, cmap = _prepare(rows)
+    with pytest.raises(PipelineError) as exc:
+        tile_spans(aln, cons, stats, cmap, _params(amplicon_len=700), [Region("F", 1001, 4000)])
+    msg = str(exc.value)
+    assert "no acceptable primers between" in msg
+    assert "try --amplicon-len 3000" in msg and "try -n" not in msg
