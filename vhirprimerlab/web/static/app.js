@@ -721,7 +721,10 @@ import {
       $('genome-figure').hidden = true;
       $('block-controls').hidden = true;
       $('genome-note').hidden = true;
-      $('genome-verdict').textContent = `${what} is ready.`;
+      // Not "is ready": nothing is drawn and the error below says what is still missing. The
+      // record is kept, though, so the verdict names it and claims nothing more -- and it is
+      // replaced rather than left saying "Asking NCBI for ...".
+      $('genome-verdict').textContent = what;
       genomeError(message);
     };
     const bases = referenceBases();

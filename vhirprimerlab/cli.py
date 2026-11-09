@@ -323,8 +323,10 @@ def make_progress(path: Path | None) -> Callable[[str, float], None]:
 
 
 def _report_params(a: argparse.Namespace) -> dict[str, object]:
+    # `amplicons` is -n, which tiling chosen spans derives per span: it is None there, and
+    # "amplicons: None" in the report would read as a setting rather than as its absence.
     return {k: (str(v) if isinstance(v, Path) else v)
-            for k, v in vars(a).items() if k != "progress_file"}
+            for k, v in vars(a).items() if k != "progress_file" and (k, v) != ("amplicons", None)}
 
 
 def _load_inputs(a: argparse.Namespace) -> _Inputs:
