@@ -420,6 +420,8 @@ def tile_spans(
     the dimer check runs once over the merged scheme because every primer of a pool
     shares a tube whatever span it came from.
     """
+    if not spans:
+        raise PipelineError("No regions to tile")
     report = progress or (lambda stage, fraction: None)
     parts: list[TilingResult] = []
     amplicons: list[Amplicon] = []
@@ -445,5 +447,6 @@ def tile_spans(
             path.append((a.fwd, a.rev))
             names.append(name)
     ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
-    return TilingResult(amplicons, parts[0].geometry, parts[0].n_fwd, parts[0].n_rev,
+    return TilingResult(amplicons, parts[0].geometry,
+                        sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
                         _dimers(path, names), ends, spanned=True)

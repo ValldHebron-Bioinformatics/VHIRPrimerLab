@@ -294,8 +294,8 @@ def test_a_span_with_no_primers_names_the_span_edge(family) -> None:
 # --- tile_spans(): several spans, one scheme ---------------------------------------
 
 def _span_params() -> TilingParams:
-    # the fixture's sequence leaves 75 bases before any primer site at the SH start
-    return _params(amplicon_len=700, max_start_loss=100, max_end_loss=100)
+    # the fixture's sequence leaves 75 bases before any primer site at the SH start (only the start limit needs loosening)
+    return _params(amplicon_len=700, max_start_loss=100)
 
 
 def test_tile_spans_numbers_and_names_across_spans(family) -> None:
@@ -324,3 +324,20 @@ def test_tile_spans_checks_dimers_across_spans(family, monkeypatch) -> None:
     res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
     # F_2 and SH share pool 2, so only a scheme-wide check can pair them
     assert any("F_2" in w and "SH" in w for w in res.dimer_warnings)
+
+
+def test_tile_spans_sums_candidates_and_rejects_no_spans(family) -> None:
+    aln, cons, stats, cmap = family
+    f_only = tile_spans(aln, cons, stats, cmap, _span_params(), [Region("F", 1001, 3000)])
+    both = tile_spans(aln, cons, stats, cmap, _span_params(),
+                      [Region("F", 1001, 3000), Region("SH", 4001, 4600)])
+    assert both.n_fwd > f_only.n_fwd and both.n_rev > f_only.n_rev
+    with pytest.raises(PipelineError, match="No regions"):
+        tile_spans(aln, cons, stats, cmap, _span_params(), [])
+
+
+def test_tile_spans_names_the_failing_span(family) -> None:
+    aln, cons, stats, cmap = family
+    # default end/start loss of 50 cannot be met at the SH start in this fixture
+    with pytest.raises(PipelineError, match="Region 'SH'"):
+        tile_spans(aln, cons, stats, cmap, _params(amplicon_len=700), [Region("SH", 4001, 4600)])

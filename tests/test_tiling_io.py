@@ -87,6 +87,20 @@ def test_report_all_pass(run, tmp_path: Path) -> None:
         assert needle in text
 
 
+def test_report_wording_whole_genome_and_spanned(run, tmp_path: Path) -> None:
+    result, cmap, records = run
+    write_tiling_report(_report(result, records), cmap, tmp_path / "a.txt")
+    text = (tmp_path / "a.txt").read_text()
+    assert "Not covered at the ends: " in text and "span edges" not in text
+    assert "Target length: " in text
+    rep = _report(dataclasses.replace(result, spanned=True), records)
+    rep.params["amplicon_len"] = 700
+    write_tiling_report(rep, cmap, tmp_path / "b.txt")
+    text = (tmp_path / "b.txt").read_text()
+    assert "Not covered at the span edges: at most " in text
+    assert "Target amplicon length: 700 bp" in text and "Target length: " not in text
+
+
 def test_report_below_threshold(run, tmp_path: Path) -> None:
     result, cmap, records = run
     low = PairCoverage(covered=[f"g{i:02d}" for i in range(1, 7)],

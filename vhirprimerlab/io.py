@@ -424,8 +424,9 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
     out = _header_lines(report, "VHIRPrimerLab tiling report")
     out += ["Tiling", "------",
             f"Amplicons: {len(res.amplicons)}",
-            f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "
-            f"±{round(g.tolerance * 100)} %)",
+            (f"Target amplicon length: {report.params.get('amplicon_len')} bp" if res.spanned else
+             f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "
+             f"±{round(g.tolerance * 100)} %)"),
             f"Candidate primers: {res.n_fwd} forward, {res.n_rev} reverse",
             f"{'Not covered at the span edges: at most' if res.spanned else 'Not covered at the ends:'} "
             f"{res.uncovered_ends[0]} bp (start), {res.uncovered_ends[1]} bp (end)", ""]
