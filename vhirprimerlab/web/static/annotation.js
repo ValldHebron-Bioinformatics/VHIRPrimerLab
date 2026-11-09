@@ -239,14 +239,56 @@ const tooLong = (accession, length) => new Error(
   `${accession} is ${length.toLocaleString('en-US')} nt, over the `
   + `${MAX_RECORD_LENGTH.toLocaleString('en-US')} nt limit. Use a gene record instead of a chromosome.`);
 
+// A request that never reached NCBI: the browser rejects with a bare TypeError ('Failed to
+// fetch') when it is offline, behind a proxy that refused, or DNS failed. The caller has to tell
+// that apart from a status to say anything useful, so it is marked rather than passed through.
+const noResponse = (cause) => Object.assign(
+  new Error(`Could not reach NCBI: ${cause && cause.message ? cause.message : 'no response'}`),
+  { offline: true, cause },
+);
+
+// The status NCBI answered, on an error the caller can read it off.
+export const httpError = (status, what) => Object.assign(
+  new Error(`NCBI answered ${status}${what ? ` for ${what}` : ''}`), { status },
+);
+
 // GET with the two retries on a 429 or a 5xx; returns the last response whatever its status.
 async function getWithRetry(fetch, url, wait) {
   for (let attempt = 0; ; attempt++) {
-    const response = await fetch(url);
+    let response;
+    try {
+      response = await fetch(url);
+    } catch (cause) {
+      throw noResponse(cause);
+    }
     const retryable = response.status === 429 || response.status >= 500;
     if (response.ok || !retryable || attempt >= RETRY_WAITS.length) return response;
     await wait(RETRY_WAITS[attempt]);
   }
+}
+
+// What to tell the user when a record did not arrive, in the shape the name search already uses:
+// every case names a way on from here. The browser's own 'Failed to fetch' names none, and a 429
+// that survived the retries means this browser is being limited and has to wait.
+export function ncbiMessage(err, accession) {
+  const ways = 'Pick an organism from the list, or load a GenBank file, which needs no network at all.';
+  if (err && err.offline) {
+    return `Your browser could not reach NCBI, so ${accession} was not loaded. Check your `
+      + `connection, or whether a proxy is in the way. ${ways}`;
+  }
+  if (err && err.status === 429) {
+    return `NCBI is limiting requests from your browser and still refused ${accession} after two `
+      + `retries. Wait about a minute and ask for it again. ${ways}`;
+  }
+  if (err && (err.status === 400 || err.status === 404)) {
+    return `NCBI has no record ${accession} (it answered ${err.status}). Check the accession, or `
+      + 'search by name instead.';
+  }
+  if (err && err.status) {
+    return `NCBI answered ${err.status} for ${accession}, so the annotation did not arrive. Try `
+      + `again shortly. ${ways}`;
+  }
+  return err && err.message ? err.message : `${accession} could not be loaded. ${ways}`;
 }
 
 // The length of a record, from the small esummary reply, so a chromosome is refused before its
@@ -270,7 +312,7 @@ export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = 
   if (!name) return [];
   const getJson = async (url) => {
     const response = await getWithRetry(fetch, url, wait);
-    if (!response.ok) throw new Error(`NCBI answered ${response.status}`);
+    if (!response.ok) throw httpError(response.status);
     return response.json();
   };
   const term = encodeURIComponent(`${name} AND srcdb_refseq[prop]`);
@@ -302,7 +344,7 @@ export async function fetchAnnotation(accession, {
 
   const url = `${EUTILS}/efetch.fcgi?db=nuccore&rettype=gbc&retmode=xml&id=${encodeURIComponent(accession)}`;
   const response = await getWithRetry(fetch, url, wait);
-  if (!response.ok) throw new Error(`NCBI answered ${response.status} for ${accession}`);
+  if (!response.ok) throw httpError(response.status, accession);
 
   const annotation = parseInsdseq(await response.text());
   // Backstop for when esummary was unavailable or left the length out.

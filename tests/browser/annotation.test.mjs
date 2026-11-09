@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, fetchRecordLength, searchOrganisms,
-  MAX_RECORD_LENGTH,
+  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, fetchRecordLength, ncbiMessage,
+  searchOrganisms, MAX_RECORD_LENGTH,
 } from '../../vhirprimerlab/web/static/annotation.js';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -431,3 +431,56 @@ test('a blank query searches nothing', async () => {
   assert.deepEqual(await searchOrganisms('   ', { fetch: searchFetch(['1'], [], seen) }), []);
   assert.equal(seen.length, 0);
 });
+
+// ---- why a record did not arrive -----------------------------------------------------------
+
+test('a fetch the browser could not even send is marked, not passed through', async () => {
+  const fetch = async () => { throw new TypeError('Failed to fetch'); };
+  const err = await fetchAnnotation('NC_039199.1', { fetch, storage: null, wait: noWait })
+    .then(() => null, (e) => e);
+  assert.equal(err.offline, true);
+  assert.equal(err.status, undefined);
+});
+
+test('an HTTP failure carries the status it answered', async () => {
+  const fetch = route(async () => ({ ok: false, status: 429, text: async () => '' }), 13350);
+  const err = await fetchAnnotation('NC_039199.1', { fetch, storage: null, wait: noWait })
+    .then(() => null, (e) => e);
+  assert.equal(err.status, 429);
+  assert.equal(err.offline, undefined);
+});
+
+test('no response names the connection and the ways on, not "Failed to fetch"', () => {
+  const err = Object.assign(new Error('Could not reach NCBI'), { offline: true });
+  const msg = ncbiMessage(err, 'NC_039199.1');
+  assert.match(msg, /could not reach NCBI/i);
+  assert.match(msg, /GenBank file/);
+  assert.equal(/Failed to fetch/.test(msg), false);
+});
+
+test('a rate limit names the wait, as the spec asks', () => {
+  const msg = ncbiMessage(Object.assign(new Error('NCBI answered 429'), { status: 429 }), 'NC_039199.1');
+  assert.match(msg, /limiting/i);
+  assert.match(msg, /minute/);
+  assert.match(msg, /GenBank file/);
+});
+
+test('a missing record points at the accession, another status at NCBI', () => {
+  const missing = ncbiMessage(Object.assign(new Error('x'), { status: 404 }), 'NC_000000.1');
+  assert.match(missing, /no record NC_000000\.1/);
+  assert.match(missing, /Check the accession/);
+  const broken = ncbiMessage(Object.assign(new Error('x'), { status: 500 }), 'NC_039199.1');
+  assert.match(broken, /answered 500 for NC_039199\.1/);
+  assert.match(broken, /GenBank file/);
+});
+
+test('an error of our own keeps its own message', () => {
+  // The over-500-kb refusal and the parse failures already say what to do.
+  assert.match(ncbiMessage(tooLongError(), 'NC_000913.3'), /over the 500,000 nt limit/);
+  assert.match(ncbiMessage(undefined, 'NC_039199.1'), /NC_039199\.1/);
+});
+
+function tooLongError() {
+  return new Error('NC_000913.3 is 4,641,652 nt, over the 500,000 nt limit. '
+    + 'Use a gene record instead of a chromosome.');
+}

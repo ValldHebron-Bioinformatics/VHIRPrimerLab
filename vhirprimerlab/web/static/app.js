@@ -1,6 +1,6 @@
 /* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 import { buildAnchorMap } from './anchors.js';
-import { fetchAnnotation, parseGenbank, searchOrganisms } from './annotation.js';
+import { fetchAnnotation, ncbiMessage, parseGenbank, searchOrganisms } from './annotation.js';
 import {
   END_LOSS, PAD, ampliconCount, blockFromFeature, lossLimits, lossNotes, maxAmplicons,
   mergeBlocks, minAmpliconLen, smallestSpan, snapPosition, targetLength,
@@ -808,7 +808,10 @@ import {
       ann = await fetchAnnotation(id);
     } catch (err) {
       if (g.pending !== token) return;
-      genomeError(err.message);
+      // Not err.message: a fetch that never reached NCBI rejects with 'Failed to fetch', which
+      // tells the user neither what happened nor that the catalogue, the cache and a GenBank file
+      // are still there. ncbiMessage() says both, as the name search beside it already does.
+      genomeError(ncbiMessage(err, id));
       $('genome-verdict').textContent = 'Pick the organism your sequences come from to see its genes.';
       return;
     }
