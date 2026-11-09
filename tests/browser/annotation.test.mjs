@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, fetchRecordLength, MAX_RECORD_LENGTH,
+  parseLocation, parseInsdseq, parseGenbank, fetchAnnotation, fetchRecordLength, searchOrganisms,
+  MAX_RECORD_LENGTH,
 } from '../../vhirprimerlab/web/static/annotation.js';
 
 const fixture = (name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
@@ -331,4 +332,102 @@ test('a record too big to cache is still returned, and not cached', async () => 
   const a = await fetchAnnotation('NC_039199.1', { fetch: okFetch(xml), storage });
   assert.equal(a.sequence.length, 120_000);
   assert.equal(data.size, 0);
+});
+
+// ---- name search ------------------------------------------------------------------------
+
+const summary = (uid, accessionversion, title, slen, organism = 'Some virus') =>
+  [uid, { uid, accessionversion, title, slen, organism }];
+// esearch answers with the ids; esummary with one document per id, in its own `uids` order.
+const searchFetch = (ids, docs, seen = []) => async (url) => {
+  seen.push(url);
+  if (url.includes('esearch')) {
+    return { ok: true, status: 200, json: async () => ({ esearchresult: { idlist: ids } }) };
+  }
+  return { ok: true, status: 200, json: async () => ({
+    result: { uids: docs.map(([uid]) => uid), ...Object.fromEntries(docs) } }) };
+};
+
+test('a name search returns each record with its organism, accession, title and length', async () => {
+  const docs = [
+    summary('11', 'NC_039199.1', 'Human metapneumovirus, complete genome', 13350, 'Human metapneumovirus'),
+    summary('22', 'NC_099999.1', 'Human metapneumovirus fusion protein (F) gene', 1620, 'Human metapneumovirus'),
+  ];
+  const hits = await searchOrganisms('human metapneumovirus', { fetch: searchFetch(['11', '22'], docs) });
+  assert.deepEqual(hits, [
+    { accession: 'NC_039199.1', organism: 'Human metapneumovirus',
+      title: 'Human metapneumovirus, complete genome', length: 13350 },
+    { accession: 'NC_099999.1', organism: 'Human metapneumovirus',
+      title: 'Human metapneumovirus fusion protein (F) gene', length: 1620 },
+  ]);
+});
+
+test('the search asks esearch for RefSeq records matching the name, then esummary for the ids', async () => {
+  const seen = [];
+  await searchOrganisms('dengue virus 2', {
+    fetch: searchFetch(['11', '22'], [summary('11', 'NC_001474.2', 't', 10_723), summary('22', 'NC_1.1', 't', 5)], seen),
+  });
+  assert.equal(seen.length, 2);
+  assert.match(seen[0], /esearch\.fcgi\?db=nuccore/);
+  assert.match(seen[0], /retmode=json/);
+  assert.match(seen[0], /retmax=10/);
+  assert.ok(seen[0].includes(encodeURIComponent('dengue virus 2 AND srcdb_refseq[prop]')));
+  assert.match(seen[1], /esummary\.fcgi\?db=nuccore/);
+  assert.match(seen[1], /id=11,22(&|$)/);
+});
+
+test('a search with no hits returns an empty list and asks nothing more', async () => {
+  const seen = [];
+  assert.deepEqual(await searchOrganisms('zzzz', { fetch: searchFetch([], [], seen) }), []);
+  assert.equal(seen.length, 1);
+});
+
+test('records over the cap are not offered', async () => {
+  const docs = [
+    summary('1', 'NC_000001.11', 'Homo sapiens chromosome 1', MAX_RECORD_LENGTH + 1),
+    summary('2', 'NC_045512.2', 'SARS-CoV-2, complete genome', 29_903),
+    summary('3', 'NC_000002.1', 'exactly at the cap', MAX_RECORD_LENGTH),
+  ];
+  const hits = await searchOrganisms('x', { fetch: searchFetch(['1', '2', '3'], docs) });
+  assert.deepEqual(hits.map((h) => h.accession), ['NC_045512.2', 'NC_000002.1']);
+});
+
+test('a search that finds only oversize records returns an empty list', async () => {
+  const docs = [summary('1', 'NC_000001.11', 'chr1', 248_956_422)];
+  assert.deepEqual(await searchOrganisms('x', { fetch: searchFetch(['1'], docs) }), []);
+});
+
+test('a hit without an accession or a length is dropped', async () => {
+  const docs = [summary('1', undefined, 't', 100), summary('2', 'NC_1.1', 't', undefined), summary('3', 'NC_2.1', 't', 50)];
+  const hits = await searchOrganisms('x', { fetch: searchFetch(['1', '2', '3'], docs) });
+  assert.deepEqual(hits.map((h) => h.accession), ['NC_2.1']);
+});
+
+test('a search is retried on a 503 like any other request', async () => {
+  let calls = 0;
+  const fetch = async (url) => {
+    calls++;
+    if (calls === 1) return { ok: false, status: 503 };
+    return searchFetch([], [])(url);
+  };
+  const waits = [];
+  assert.deepEqual(await searchOrganisms('x', { fetch, wait: async (ms) => { waits.push(ms); } }), []);
+  assert.deepEqual(waits, [1000]);
+});
+
+test('a search NCBI cannot answer throws, so it is not mistaken for no results', async () => {
+  const down = async () => ({ ok: false, status: 500 });
+  await assert.rejects(searchOrganisms('x', { fetch: down, wait: noWait }), /500/);
+  const offline = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(searchOrganisms('x', { fetch: offline, wait: noWait }), /Failed to fetch/);
+  const summaryDown = async (url) => url.includes('esearch')
+    ? { ok: true, status: 200, json: async () => ({ esearchresult: { idlist: ['1'] } }) }
+    : { ok: false, status: 404 };
+  await assert.rejects(searchOrganisms('x', { fetch: summaryDown, wait: noWait }), /404/);
+});
+
+test('a blank query searches nothing', async () => {
+  const seen = [];
+  assert.deepEqual(await searchOrganisms('   ', { fetch: searchFetch(['1'], [], seen) }), []);
+  assert.equal(seen.length, 0);
 });

@@ -262,6 +262,33 @@ export async function fetchRecordLength(accession, { fetch = globalThis.fetch, w
   } catch { return null; }
 }
 
+// Reference records whose name matches, for the user to choose from. Unlike fetchRecordLength this
+// throws when NCBI cannot answer, so "the search failed" is never shown as "nothing was found".
+// Records over the cap are left out: they could not be loaded anyway.
+export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = sleep } = {}) {
+  const name = String(query).trim();
+  if (!name) return [];
+  const getJson = async (url) => {
+    const response = await getWithRetry(fetch, url, wait);
+    if (!response.ok) throw new Error(`NCBI answered ${response.status}`);
+    return response.json();
+  };
+  const term = encodeURIComponent(`${name} AND srcdb_refseq[prop]`);
+  const found = await getJson(`${EUTILS}/esearch.fcgi?db=nuccore&retmode=json&retmax=10&term=${term}`);
+  const ids = found?.esearchresult?.idlist ?? [];
+  if (!ids.length) return [];
+  const { result } = await getJson(`${EUTILS}/esummary.fcgi?db=nuccore&retmode=json&id=${ids.join(',')}`);
+  return ids
+    .map((id) => result?.[id])
+    .filter(Boolean)
+    .map((doc) => ({
+      accession: doc.accessionversion || '', organism: doc.organism || '',
+      title: doc.title || '', length: Number(doc.slen),
+    }))
+    .filter((hit) => hit.accession && Number.isFinite(hit.length) && hit.length > 0
+      && hit.length <= MAX_RECORD_LENGTH);
+}
+
 // `wait` exists so the tests need not sit through the backoff.
 export async function fetchAnnotation(accession, {
   fetch = globalThis.fetch, storage = defaultStorage(), wait = sleep,

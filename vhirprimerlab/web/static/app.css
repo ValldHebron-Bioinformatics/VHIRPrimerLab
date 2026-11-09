@@ -283,6 +283,12 @@ td.lead .sub { overflow-wrap: anywhere; }
 .genome { padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 16px; }
 .org-find { display: flex; gap: 8px; }
 .org-find input { min-width: 0; }
+.org-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.org-hit { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; padding: 8px 12px; background: var(--raised); border: 1px solid var(--control); border-radius: 6px; font: inherit; color: var(--ink); cursor: pointer; }
+.org-hit:hover, .org-hit:focus-visible { border-color: var(--ink); }
+.org-hit-name { font-weight: 500; overflow-wrap: anywhere; }
+.org-hit-meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.org-hit-title { grid-column: 1 / -1; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .map .feat { cursor: pointer; }
 .map .feat rect { fill: var(--data); }
 .map .feat .join { stroke: var(--data); stroke-dasharray: 2 3; }

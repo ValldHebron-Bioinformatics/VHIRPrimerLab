@@ -1,6 +1,6 @@
 /* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 import { buildAnchorMap } from './anchors.js';
-import { fetchAnnotation, parseGenbank } from './annotation.js';
+import { fetchAnnotation, parseGenbank, searchOrganisms } from './annotation.js';
 import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPosition } from './blocks.js';
 
 (() => {
@@ -323,15 +323,6 @@ import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPo
   // shared k-mers (anchors.js), and the spans the user clicks together are kept by blocks.js.
   // Only the drawing, the dragging and the wiring live here.
 
-  // The records asked for most often; any other accession goes in the box below them.
-  const ORGANISMS = [
-    { label: 'Human metapneumovirus', accession: 'NC_039199.1' },
-    { label: 'Respiratory syncytial virus A', accession: 'NC_038235.1' },
-    { label: 'Respiratory syncytial virus B', accession: 'NC_001781.1' },
-    { label: 'SARS-CoV-2', accession: 'NC_045512.2' },
-    { label: 'Influenza A (H1N1) segment 4, HA', accession: 'NC_026433.1' },
-    { label: 'Influenza A (H1N1) segment 6, NA', accession: 'NC_026434.1' },
-  ];
   const LANES = [
     { label: 'Genes', cls: 'lane-gene' },
     { label: 'CDS', cls: 'lane-cds' },
@@ -799,15 +790,118 @@ import { PAD, ampliconCount, blockFromFeature, mergeBlocks, smallestSpan, snapPo
       return;
     }
     $('genbank').value = '';
+    clearHits();
     useAnnotation(ann);
   }
 
-  ORGANISMS.forEach((o) => $('organism').add(new Option(`${o.label} — ${o.accession}`, o.accession)));
-  $('organism').addEventListener('change', (e) => { $('accession').value = ''; loadAccession(e.target.value); });
-  $('accession-load').addEventListener('click', () => { $('organism').value = ''; loadAccession($('accession').value); });
-  $('accession').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); $('accession-load').click(); }
+  // The records asked for most often, from organisms.json; any other record is found by name or
+  // accession in the box below them. Without the list the box and a GenBank file still work.
+  async function loadCatalogue() {
+    const select = $('organism');
+    try {
+      const response = await fetch('organisms.json');
+      if (!response.ok) throw new Error(`answered ${response.status}`);
+      const list = await response.json();
+      list.forEach((o) => select.add(new Option(
+        `${o.label} — ${o.accession}${o.note ? ` · ${o.note}` : ''}`, o.accession)));
+    } catch {
+      select.options[0].textContent = 'The list of organisms could not be loaded';
+      genomeError('The list of organisms could not be loaded. Search by name or accession below, '
+        + 'or load a GenBank file.');
+    }
+  }
+
+  // An accession is letters then digits (NC_039199.1, MN908947); a name is anything else.
+  const looksLikeAccession = (text) => /^(?:[A-Z]{2}_\d{6,9}|[A-Z]{1,2}\d{5,8})(?:\.\d+)?$/i.test(text.trim());
+
+  let searching = null;   // the name search whose answer is still wanted
+
+  function clearHits(note = '') {
+    searching = null;
+    $('org-hits').replaceChildren();
+    $('org-hits').hidden = true;
+    $('org-hits-note').textContent = note;
+    $('org-hits-note').hidden = !note;
+  }
+
+  function pickHit(hit) {
+    clearHits();
+    $('organism').value = '';
+    $('accession').value = hit.accession;
+    loadAccession(hit.accession);
+  }
+
+  function showHits(hits, query) {
+    clearHits(hits.length
+      ? `${hits.length} reference record${hits.length === 1 ? '' : 's'} for "${query}". `
+        + 'A length near the whole genome is the genome; a short one is a single gene.'
+      : `NCBI has no reference record for "${query}". Check the spelling, try the species name, `
+        + 'or paste an accession.');
+    for (const hit of hits) {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'org-hit';
+      const parts = [
+        ['org-hit-name', hit.organism || hit.title],
+        ['org-hit-meta', `${hit.accession} · ${hit.length.toLocaleString('en-US')} nt`],
+        ['org-hit-title', hit.title],
+      ];
+      for (const [cls, text] of parts) {
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = text;
+        button.append(span);
+      }
+      button.addEventListener('click', () => pickHit(hit));
+      li.append(button);
+      $('org-hits').append(li);
+    }
+    $('org-hits').hidden = !hits.length;
+  }
+
+  async function findOrganism() {
+    const text = $('accession').value.trim();
+    if (!text) return;
+    $('organism').value = '';
+    clearHits();
+    if (looksLikeAccession(text)) {   // plainly an accession: no search, load it
+      loadAccession(text);
+      return;
+    }
+    genomeError('');
+    const token = {};
+    searching = token;
+    $('org-hits-note').hidden = false;
+    $('org-hits-note').textContent = 'Searching NCBI…';
+    try {
+      const hits = await searchOrganisms(text);
+      if (searching !== token) return;
+      showHits(hits, text);
+    } catch {
+      if (searching !== token) return;
+      clearHits();
+      genomeError('The NCBI name search is not answering right now, so nothing was looked up. '
+        + 'Pick an organism from the list, paste an accession, or load a GenBank file.');
+    }
+  }
+
+  const syncFindButton = () => {
+    $('accession-load').textContent = looksLikeAccession($('accession').value) ? 'Load' : 'Search';
+  };
+
+  $('organism').addEventListener('change', (e) => {
+    $('accession').value = '';
+    syncFindButton();
+    clearHits();
+    loadAccession(e.target.value);
   });
+  $('accession-load').addEventListener('click', findOrganism);
+  $('accession').addEventListener('input', syncFindButton);
+  $('accession').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); findOrganism(); }
+  });
+  loadCatalogue();
   $('genbank').addEventListener('change', (e) => loadGenbankFile(e.target.files[0]));
   ['amplicon_len', 'gene_overlap'].forEach((id) => $(id).addEventListener('input', () => {
     if (state.genome.map) renderBlocks();

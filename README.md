@@ -161,6 +161,24 @@ Server limits can be changed with environment variables: `VHIRPRIMERLAB_MAX_SEQS
 Pyodide, and the MAFFT programs `mafft --auto` runs, for WebAssembly); `tools/build_site.py`
 assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it on every push to master.
 
+## Pick by gene
+
+The web app's "Pick by gene" mode draws an organism's genes over your own reference, so you
+click the genes you want and get primers covering them instead of counting amplicons.
+
+1. Drop your sequences. The genes are placed on whichever sequence you choose as the reference.
+2. Choose the organism: one of the usual targets in the list (the list is
+   `vhirprimerlab/web/static/organisms.json`; edit it to add your own), or type a name or an
+   accession in the box under it. A name such as `dengue virus 2` is searched among NCBI's RefSeq
+   records and the matches are listed with their accession and length: a length near the whole
+   genome is the genome, a short one is a single gene. Something that is plainly an accession
+   (`NC_039199.1`) is loaded directly. Records over 500,000 nt are refused.
+3. Click the genes on the drawing; drag the handles of a picked span to adjust it.
+
+Your browser asks NCBI for the annotation and keeps it for next time; only the name or accession
+you type is sent, never your sequences, and the server makes no network call. A GenBank file needs
+no network at all, and neither does a list that fails to load.
+
 ## Advanced: target regions
 
 Instead of tiling the whole genome you can design pairs inside chosen regions
