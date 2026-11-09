@@ -85,8 +85,8 @@
              on the diagram means, so it is reachable in Basic there (see applyMode). -->
         <div class="field" id="reference-field" data-modes="tile regions check genes">
           <label for="reference_id">Reference sequence</label>
-          <select id="reference_id" name="reference_id" data-setting="reference_id"><option value="">First sequence</option></select>
-          <p class="help" id="reference-help">Positions in the results, and the genes on the diagram, are read off this sequence. It must not be a length outlier: the run drops those and would then use another sequence.</p>
+          <select id="reference_id" name="reference_id" data-setting="reference_id" aria-describedby="reference-help"><option value="">First sequence</option></select>
+          <p class="help" id="reference-help">Positions in the results, and the genes on the diagram, are read off this sequence. It must not be a length outlier: rather than use a different sequence, the run stops and asks you to pick another.</p>
         </div>
 
         <div class="field" data-modes="tile">
