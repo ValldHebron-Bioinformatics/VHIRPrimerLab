@@ -297,6 +297,7 @@ class PrimerCandidate:
 @dataclass
 class Amplicon:
     index: int  # 1-based
+    name: str  # pair name without a side suffix, e.g. VHIRPrimerLab_3
     pool: int
     fwd: PrimerCandidate
     rev: PrimerCandidate

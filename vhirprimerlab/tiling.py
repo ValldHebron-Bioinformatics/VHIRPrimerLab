@@ -196,8 +196,13 @@ def choose(
     return best
 
 
-def _primer_names(index: int) -> tuple[str, str]:
-    return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
+def _pair_name(index: int) -> str:
+    """Default name of the amplicon at a 1-based whole-genome index."""
+    return f"VHIRPrimerLab_{index}"
+
+
+def _primer_names(name: str) -> tuple[str, str]:
+    return f"{name}_LEFT", f"{name}_RIGHT"
 
 
 Key = tuple[str, int, int]  # (strand, start, length) identifies a candidate primer
@@ -218,7 +223,7 @@ def _dimer_pairs(path: Path_) -> list[tuple[int, str, str, float, PrimerCandidat
         oligos: list[tuple[str, PrimerCandidate]] = []
         for k, (f, r) in enumerate(path, start=1):
             if (1 if k % 2 else 2) == pool:
-                left, right = _primer_names(k)
+                left, right = _primer_names(_pair_name(k))
                 oligos += [(left, f), (right, r)]
         for i, (name_a, a) in enumerate(oligos):
             for name_b, b in oligos[i + 1:]:
@@ -384,7 +389,7 @@ def tile(
         cov = score_pair(f.site, f.cols, r.site, r.cols, aln, params.scoring)
         nxt = path[k][0] if k < len(path) else None
         amplicons.append(Amplicon(
-            index=k, pool=1 if k % 2 else 2, fwd=f, rev=r, coverage=cov,
+            index=k, name=_pair_name(k), pool=1 if k % 2 else 2, fwd=f, rev=r, coverage=cov,
             below_threshold=cov.coverage_pct < params.min_coverage,
             overlap_next=None if nxt is None else r.start - nxt.end - 1,
         ))

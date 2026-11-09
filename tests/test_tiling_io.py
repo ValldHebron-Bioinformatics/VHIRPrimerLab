@@ -12,6 +12,7 @@ from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import (
     TILING_TSV_COLUMNS,
     alignment_from_records,
+    tiling_order,
     write_scheme_bed,
     write_tiling_report,
     write_tiling_tsv,
@@ -132,3 +133,22 @@ def test_report_lists_every_primer(run, tmp_path: Path) -> None:
     for a in result.amplicons:
         assert f"VHIRPrimerLab_{a.index}_LEFT   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}" in text
         assert f"VHIRPrimerLab_{a.index}_RIGHT  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}" in text
+
+
+def test_whole_genome_names_are_unchanged(run) -> None:
+    result, _, _ = run
+    assert [a.name for a in result.amplicons[:2]] == ["VHIRPrimerLab_1", "VHIRPrimerLab_2"]
+    assert tiling_order(result)[:2] == [
+        ("VHIRPrimerLab_1_LEFT", result.amplicons[0].fwd.seq),
+        ("VHIRPrimerLab_1_RIGHT", result.amplicons[0].rev.seq),
+    ]
+
+
+def test_the_order_sheet_follows_the_amplicon_name(run) -> None:
+    result, _, _ = run
+    renamed = dataclasses.replace(
+        result,
+        amplicons=[dataclasses.replace(result.amplicons[0], name="F"), *result.amplicons[1:]],
+    )
+    assert tiling_order(renamed)[0][0] == "F_LEFT"
+    assert tiling_order(result)[0][0] == "VHIRPrimerLab_1_LEFT"
