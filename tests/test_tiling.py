@@ -10,8 +10,8 @@ from vhirprimerlab import structure, tiling
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import alignment_from_records
-from vhirprimerlab.models import PipelineError, PrimerCandidate, Record, TilingParams, primer_names
-from vhirprimerlab.tiling import choose, geometry, tile
+from vhirprimerlab.models import PipelineError, PrimerCandidate, Record, Region, TilingParams, primer_names
+from vhirprimerlab.tiling import choose, geometry, tile, tile_spans
 
 PARAMS = TilingParams(
     n_amplicons=5, overlap=50, tm_min=57, tm_opt=60, tm_max=63, max_tm_diff=2,
@@ -289,3 +289,38 @@ def test_a_span_with_no_primers_names_the_span_edge(family) -> None:
     aln, cons, stats, cmap = family
     with pytest.raises(PipelineError, match="of the span start"):
         tile(aln, cons, stats, cmap, _params(n_amplicons=1, max_start_loss=0), span=(1000, 2999))
+
+
+# --- tile_spans(): several spans, one scheme ---------------------------------------
+
+def _span_params() -> TilingParams:
+    # the fixture's sequence leaves 75 bases before any primer site at the SH start
+    return _params(amplicon_len=700, max_start_loss=100, max_end_loss=100)
+
+
+def test_tile_spans_numbers_and_names_across_spans(family) -> None:
+    aln, cons, stats, cmap = family
+    spans = [Region("F", 1001, 3000), Region("SH", 4001, 4600)]
+    res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
+    assert [a.name for a in res.amplicons] == ["F_1", "F_2", "F_3", "SH"]
+    assert [a.index for a in res.amplicons] == [1, 2, 3, 4]
+    assert [a.pool for a in res.amplicons] == [1, 2, 1, 2]
+    assert res.spanned is True
+
+
+def test_tile_spans_overlaps_inside_a_span_only(family) -> None:
+    aln, cons, stats, cmap = family
+    spans = [Region("F", 1001, 3000), Region("SH", 4001, 4600)]
+    res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
+    assert res.amplicons[0].overlap_next >= 50          # inside F
+    assert res.amplicons[2].overlap_next is None        # last of F: no neighbour
+    assert res.amplicons[-1].overlap_next is None
+
+
+def test_tile_spans_checks_dimers_across_spans(family, monkeypatch) -> None:
+    aln, cons, stats, cmap = family
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -20_000)
+    spans = [Region("F", 1001, 3000), Region("SH", 4001, 4600)]
+    res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
+    # F_2 and SH share pool 2, so only a scheme-wide check can pair them
+    assert any("F_2" in w and "SH" in w for w in res.dimer_warnings)

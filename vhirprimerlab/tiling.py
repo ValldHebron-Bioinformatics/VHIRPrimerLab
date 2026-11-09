@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import dataclasses
 import logging
 import math
 from typing import Callable
@@ -23,6 +24,7 @@ from vhirprimerlab.models import (
     Geometry,
     PipelineError,
     PrimerCandidate,
+    Region,
     TilingParams,
     TilingResult,
     primer_names,
@@ -401,3 +403,47 @@ def tile(
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
     return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends)
+
+
+def tile_spans(
+    aln: Alignment,
+    cons: Consensus,
+    stats: list[ColumnStats],
+    cmap: CoordMap,
+    params: TilingParams,
+    spans: list[Region],
+    progress: Progress | None = None,
+) -> TilingResult:
+    """Tile each span on its own and merge the results into one multiplex scheme.
+
+    Amplicons are numbered across the scheme, pools alternate over that numbering, and
+    the dimer check runs once over the merged scheme because every primer of a pool
+    shares a tube whatever span it came from.
+    """
+    report = progress or (lambda stage, fraction: None)
+    parts: list[TilingResult] = []
+    amplicons: list[Amplicon] = []
+    path: Path_ = []
+    names: list[str] = []
+    for i, span in enumerate(spans):
+        lo, length = cmap.region_to_included(span)
+        n = amplicons_for(length, params.amplicon_len, params.overlap)
+        try:
+            part = tile(aln, cons, stats, cmap, dataclasses.replace(params, n_amplicons=n),
+                        progress=lambda stage, f, i=i: report(stage, (i + f) / len(spans)),
+                        span=(lo, lo + length - 1))
+        except PipelineError as e:
+            raise PipelineError(f"Region '{span.name}': {e}") from e
+        parts.append(part)
+        for k, a in enumerate(part.amplicons, start=1):
+            name = span.name if n == 1 else f"{span.name}_{k}"
+            index = len(amplicons) + 1
+            last = k == len(part.amplicons)
+            amplicons.append(dataclasses.replace(
+                a, index=index, name=name, pool=1 if index % 2 else 2,
+                overlap_next=None if last else a.overlap_next))
+            path.append((a.fwd, a.rev))
+            names.append(name)
+    ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
+    return TilingResult(amplicons, parts[0].geometry, parts[0].n_fwd, parts[0].n_rev,
+                        _dimers(path, names), ends, spanned=True)

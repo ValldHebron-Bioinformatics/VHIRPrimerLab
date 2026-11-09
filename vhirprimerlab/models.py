@@ -249,6 +249,7 @@ class TilingParams:
     min_coverage: float
     max_start_loss: int = 50  # genome bases allowed outside the first insert
     max_end_loss: int = 50  # genome bases allowed outside the last insert
+    amplicon_len: int = 400  # target amplicon length when tiling chosen spans
 
     @property
     def scoring(self) -> ScoringParams:
@@ -319,6 +320,7 @@ class TilingResult:
     n_rev: int
     dimer_warnings: list[str]
     uncovered_ends: tuple[int, int]  # reference bases outside the first / last insert
+    spanned: bool = False  # tiled chosen spans, not the whole genome
 
 
 @dataclass

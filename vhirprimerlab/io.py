@@ -427,8 +427,8 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "
             f"±{round(g.tolerance * 100)} %)",
             f"Candidate primers: {res.n_fwd} forward, {res.n_rev} reverse",
-            f"Not covered at the ends: {res.uncovered_ends[0]} bp (start), "
-            f"{res.uncovered_ends[1]} bp (end)", ""]
+            f"{'Not covered at the span edges: at most' if res.spanned else 'Not covered at the ends:'} "
+            f"{res.uncovered_ends[0]} bp (start), {res.uncovered_ends[1]} bp (end)", ""]
     for a in res.amplicons:
         span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
         where = f"{span[0]}-{span[1]}  {span[1] - span[0] + 1} bp" if span else "not on reference"
