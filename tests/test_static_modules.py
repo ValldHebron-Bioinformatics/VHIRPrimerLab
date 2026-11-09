@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="needs node
 
 def test_static_module_node_tests() -> None:
     proc = subprocess.run(
-        ["node", "--test", "anchors.test.mjs", "annotation.test.mjs"], cwd=HERE,
+        ["node", "--test", "anchors.test.mjs", "annotation.test.mjs", "blocks.test.mjs"], cwd=HERE,
         capture_output=True, text=True, timeout=300,
     )
     assert proc.returncode == 0, proc.stdout[-4000:] + proc.stderr[-2000:]
