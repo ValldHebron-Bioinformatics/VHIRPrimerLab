@@ -380,3 +380,22 @@ def test_span_no_fit_suggests_an_amplicon_length(family) -> None:
     msg = str(exc.value)
     assert "no acceptable primers between" in msg
     assert "try --amplicon-len 3000" in msg and "try -n" not in msg
+
+
+def test_tile_spans_refuses_two_amplicons_with_the_same_name(family) -> None:
+    aln, cons, stats, cmap = family
+    # F takes three amplicons, F_1 to F_3. A sibling feature with no /gene whose product
+    # sanitises to F_1 takes one, also named F_1: primers.tsv and scheme.bed would then carry
+    # two different oligos called F_1_LEFT.
+    spans = [Region("F", 1001, 3000), Region("F_1", 4001, 4600)]
+    with pytest.raises(PipelineError, match="F_1"):
+        tile_spans(aln, cons, stats, cmap, _span_params(), spans)
+
+
+def test_tile_spans_keeps_distinct_names(family) -> None:
+    aln, cons, stats, cmap = family
+    res = tile_spans(aln, cons, stats, cmap, _span_params(),
+                     [Region("F", 1001, 3000), Region("SH", 4001, 4600)])
+    names = [a.name for a in res.amplicons]
+    assert len(set(names)) == len(names)
+    assert len({n for a in names for n in primer_names(a)}) == 2 * len(names)

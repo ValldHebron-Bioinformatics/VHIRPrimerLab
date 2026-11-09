@@ -480,6 +480,17 @@ def tile_spans(
                 overlap_next=None if last else a.overlap_next))
             path.append((a.fwd, a.rev))
             names.append(name)
+    # A span of several amplicons names them NAME_1, NAME_2, ...; a span of one keeps its own
+    # name. A span called F_1 beside a span called F therefore collides, and primers.tsv and
+    # scheme.bed would carry two different oligos called F_1_LEFT. The browser can produce it: a
+    # gene F taking several amplicons, and a sibling feature with no /gene whose product
+    # sanitises to F_1.
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise PipelineError(
+            f"Two amplicons would both be called {', '.join(repeated)}, so their primers could "
+            "not be told apart in primers.tsv or scheme.bed: rename one of the regions"
+        )
     ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
     return TilingResult(amplicons, parts[0].geometry,
                         sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
