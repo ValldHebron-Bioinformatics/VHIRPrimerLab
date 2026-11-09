@@ -15,7 +15,7 @@ def test_build_site(tmp_path: Path) -> None:
     assert (out / "index.html").is_file()                      # the landing page
     app = out / "app"
     for name in ("index.html", "app.js", "app.css", "engine-worker.js", "mafft-runner.js",
-                 "anchors.js", "example.fasta"):
+                 "anchors.js", "annotation.js", "example.fasta"):
         assert (app / name).is_file(), name
     engine = app / "engine"
     manifest = json.loads((engine / "manifest.json").read_text())
