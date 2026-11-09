@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from vhirprimerlab.cli import main
+from vhirprimerlab.cli import check_span, main, parse_args, run_tiling, validate_args
+from vhirprimerlab.models import PipelineError, Region
 from tests.conftest import needs_mafft
 from tests.synthetic import make_family
 
@@ -93,3 +94,33 @@ def test_default_reference_is_first_after_filtering(tmp_path: Path) -> None:
     rc = main(["-i", str(fa), "-o", str(tmp_path / "o2"), "--reference-id", "partial",
                "--region", "100-200", *AMP])
     assert rc == 1
+
+
+def test_tile_region_routes_to_tiling() -> None:
+    args, runner, _ = parse_args(["-i", "in.fa", "--tile-region", "F:101-900", "-o", "out"])
+    assert runner is run_tiling and args.tile_region == ["F:101-900"]
+    assert args.amplicon_len == 400
+    assert args.max_degeneracy == 4
+
+
+def test_tile_region_cannot_be_combined() -> None:
+    for clash in (["-n", "4"], ["--region", "x:1-100"], ["--regions-file", "r.tsv"]):
+        with pytest.raises(SystemExit):
+            parse_args(["-i", "in.fa", "--tile-region", "F:101-900", *clash, "-o", "out"])
+
+
+def test_a_span_outside_the_reference_is_refused() -> None:
+    with pytest.raises(PipelineError, match="outside the reference"):
+        check_span(Region("F", 9000, 9500), ref_length=1000)
+
+
+def test_a_backwards_span_is_refused() -> None:
+    with pytest.raises(PipelineError, match="start must be smaller than end"):
+        check_span(Region("F", 900, 101), ref_length=1000)
+
+
+def test_amplicon_len_must_exceed_overlap() -> None:
+    args, _, _ = parse_args(["-i", "in.fa", "--tile-region", "F:101-900", "--amplicon-len", "50",
+                             "-o", "out"])
+    with pytest.raises(PipelineError, match="--amplicon-len must be greater than --overlap"):
+        validate_args(args)

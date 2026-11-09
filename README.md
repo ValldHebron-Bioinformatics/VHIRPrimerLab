@@ -78,11 +78,28 @@ so overlapping products never share a tube. It writes:
    at least as many sequences; dimers that cannot be removed this way are listed in
    `report.txt`.
 
+### Tiling chosen spans
+
+To tile only parts of the genome (say, two genes) give each span with `--tile-region` instead of `-n`:
+
+```bash
+vhirprimerlab -i genomes.fasta -o out \
+    --tile-region F:1001-3000 --tile-region SH:4001-4600 --amplicon-len 700
+```
+
+Each span is tiled on its own with amplicons of about `--amplicon-len`, overlapping by at least
+`--overlap`; a span that fits in one amplicon gets one. Amplicons are numbered and pooled across
+the whole scheme and named after their span (`F_1_LEFT`, `F_2_LEFT`, …; `SH_LEFT` for a
+single-amplicon span). `--max-start-loss` and `--max-end-loss` apply at the start and end of every
+span, and primer dimers are checked across the whole scheme.
+
 ### Tiling options
 
 | Option | Default | Description |
 |---|---|---|
 | `-n/--amplicons` | — | number of amplicons |
+| `--tile-region` | — | `[NAME:]START-END`, 1-based reference coordinates; tile only this span, repeatable, one scheme for all spans (replaces `-n`; cannot be combined with `-n`, `--region` or `--regions-file`) |
+| `--amplicon-len` | 400 | target amplicon length with `--tile-region` (bp); each span gets as many amplicons as it needs |
 | `--overlap` | 50 | minimum overlap between neighbouring amplicons (bp, between the primers) |
 | `--max-start-loss` | 50 | most genome bases left outside the first insert (bp, primer included) |
 | `--max-end-loss` | 50 | most genome bases left outside the last insert (bp, primer included) |

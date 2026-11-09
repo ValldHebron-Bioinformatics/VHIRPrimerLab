@@ -101,3 +101,17 @@ def test_bad_tiling_param_exit_1(tmp_path: Path) -> None:
     aln = write_fasta(tmp_path / "a.fasta", make_genome_family())
     assert main(["--aligned", str(aln), "-n", "0", "-o", str(tmp_path / "o")]) == 1
     assert main(["--aligned", str(aln), "-n", "5", "--overlap", "-1", "-o", str(tmp_path / "o")]) == 1
+
+
+def test_span_tiling_end_to_end(tmp_path) -> None:
+    aln = write_fasta(tmp_path / "aln.fasta", make_genome_family())
+    out = tmp_path / "out"
+    # the synthetic genome has no acceptable primer within 50 nt of position 4001
+    code = main(["--aligned", str(aln), "--tile-region", "F:1001-3000",
+                 "--tile-region", "SH:4001-4600", "--amplicon-len", "700",
+                 "--max-start-loss", "100", "-o", str(out)])
+    assert code == 0
+    names = [r["forward_name"] for r in read_tsv(out / "amplicons.tsv")]
+    assert names[:2] == ["F_1_LEFT", "F_2_LEFT"] and names[-1] == "SH_LEFT"
+    assert (out / "scheme.bed").read_text().count("SH_RIGHT") == 1
+    assert "Target amplicon length: 700 bp" in (out / "report.txt").read_text()
