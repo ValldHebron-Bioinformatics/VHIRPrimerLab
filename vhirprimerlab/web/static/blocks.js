@@ -54,24 +54,19 @@ export function achievedPad(block) {
   return { start: feat.start - block.start, end: block.end - feat.end };
 }
 
-// The --max-start-loss / --max-end-loss a run of these blocks must ask for. The engine measures
-// both from the span's edge, so a limit larger than the padding there lets it leave the feature's
-// own bases outside the inserts: the limit is the least padding any block achieved. Asking for
-// more than the full padding buys nothing, hence the cap; a limit under END_LOSS cannot be met by
-// any primer, hence the floor, which is the engine's own default.
-export function lossLimits(blocks, { pad = PAD, endLoss = END_LOSS } = {}) {
-  const full = pad + endLoss;
-  const least = (side) => Math.min(...blocks.map((b) => achievedPad(b)[side]));
-  const limit = (side) => Math.min(full, Math.max(endLoss, least(side)));
-  return blocks.length ? { start: limit('start'), end: limit('end') } : { start: endLoss, end: endLoss };
-}
+// The --max-start-loss / --max-end-loss every run asks for, at both ends of every span. One pair
+// of flags covers the whole scheme -- tile_spans has no per-span limits -- so it has to be the
+// full padding. Lowering it to the least padding any block achieved held every span to the worst
+// one: picking hMPV's N gene, which is clamped at base 1 and has no padding there, dropped the
+// limit to 50 and broke the L gene, which needs 51 and tiles fine on its own. Picking a gene must
+// not break another gene. The cost of the full padding is instead disclosed, by lossNotes below.
+export const PADDING = PAD + END_LOSS;
 
-// Bases of the feature behind each block that the engine may leave outside the amplicons under
-// these limits: what is lost is the limit beyond the padding. Since the limit is the least padding
-// achieved (floored at END_LOSS), only a block with less than END_LOSS of padding at an end can
-// lose anything there, and a fully padded block never appears here. The results panel never
-// mentions this, so the block list must.
-export function lossNotes(blocks, limits) {
+// Bases of the feature behind each block that the engine may leave outside the amplicons: what is
+// lost is the limit beyond the padding the block achieved. A block with its full padding is safe
+// and never appears here; one clamped at the reference's edge, or dragged into its own feature,
+// can lose up to the whole padding. The results panel never mentions this, so the block list must.
+export function lossNotes(blocks, limits = { start: PADDING, end: PADDING }) {
   const notes = [];
   for (const b of blocks) {
     if (!b.feat) continue;   // the whole-genome shortcut covers no feature in particular

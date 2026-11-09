@@ -2,8 +2,8 @@
 import { buildAnchorMap } from './anchors.js';
 import { fetchAnnotation, ncbiMessage, parseGenbank, searchOrganisms } from './annotation.js';
 import {
-  END_LOSS, PAD, ampliconCount, blockFromFeature, lossLimits, lossNotes, maxAmplicons,
-  mergeBlocks, minAmpliconLen, smallestSpan, snapPosition, targetLength,
+  END_LOSS, PAD, PADDING, ampliconCount, blockFromFeature, lossNotes, maxAmplicons, mergeBlocks,
+  minAmpliconLen, smallestSpan, snapPosition, targetLength,
 } from './blocks.js';
 
 (() => {
@@ -336,11 +336,11 @@ import {
   const GRID = 10;                 // a drag that lands near no feature edge snaps to this
   const minSpan = () => smallestSpan(num('primer_len_max') || 25);
   // A clicked feature is padded by PAD (the anchor map's error) plus the engine's end-loss
-  // allowance, END_LOSS, which comes from blocks.js so the page and the block helpers share one
-  // definition of it. The engine measures --max-start-loss / --max-end-loss from the padded edge,
-  // so a block with its full padding may lose at most the padding, which lands exactly on the
-  // feature's own edge. A block clamped at the reference's edge has less, and lossLimits() works
-  // out what the run may then ask for.
+  // allowance, END_LOSS, which come from blocks.js so the page and the block helpers share one
+  // definition of each. The engine measures --max-start-loss / --max-end-loss from the padded
+  // edge, so a block with its full padding may lose at most the padding, which lands exactly on
+  // the feature's own edge. A block clamped at the reference's edge has less than that, and
+  // lossNotes() says how much of such a feature is at risk.
   let plot = null;                 // the last draw's geometry, so a drag can read bases off pixels
 
   function genomeError(message) {
@@ -582,12 +582,13 @@ import {
   // How much of a feature may fall outside the amplicons, in the user's terms: they chose a gene,
   // so the number that matters is bases of that gene, not of the span around it.
   function lossLine(l) {
-    const ends = [];
-    if (l.start) ends.push(`${fmt(l.start)} at its start`);
-    if (l.end) ends.push(`${fmt(l.end)} at its end`);
-    const total = l.start + l.end;
-    return `There is no room to pad ${l.name} fully, so up to ${ends.join(' and ')} `
-      + `base${total === 1 ? '' : 's'} of it may fall outside the amplicons.`;
+    if (!l.start || !l.end) {
+      const n = l.start || l.end;
+      return `${l.name} cannot be padded at its ${l.start ? 'start' : 'end'}, so up to `
+        + `${fmt(n)} base${n === 1 ? '' : 's'} of it may fall outside the amplicons.`;
+    }
+    return `${l.name} cannot be padded at either end, so up to ${fmt(l.start)} bases at its `
+      + `start and ${fmt(l.end)} at its end may fall outside the amplicons.`;
   }
 
   function renderBlocks() {
@@ -634,9 +635,9 @@ import {
     }
     if (over) lines.push(`The web app designs up to ${fmt(cap)} amplicons: lengthen the amplicons or pick fewer genes.`);
     // A span that reaches the reference's edge, or whose handle was dragged into the feature, has
-    // less padding than the engine's allowance, so part of the feature itself can end up outside
-    // the amplicons. Only report.txt would say so otherwise.
-    lossNotes(g.blocks, lossLimits(g.blocks)).forEach((l) => lines.push(lossLine(l)));
+    // less padding than the run asks the engine for, so part of the feature itself can end up
+    // outside the amplicons. Only report.txt would say so otherwise.
+    lossNotes(g.blocks).forEach((l) => lines.push(lossLine(l)));
     if (g.note) lines.push(g.note);
     const bad = Boolean(g.blocks.length) && (Boolean(problem) || over);
     const note = $('blocks-note');
@@ -1455,12 +1456,12 @@ import {
       out.tile_regions = state.genome.blocks.map((b) => `${b.name}:${b.start}-${b.end}`);
       out.amplicon_len = Math.round(num('amplicon_len'));
       out.overlap = Math.round(num('gene_overlap'));
-      // The limits are the padding the spans actually achieved, not the padding they were asked
-      // for: a span clamped at the reference's edge has less, and sending the full padding there
-      // would let the engine leave the feature's own bases outside the inserts.
-      const limits = lossLimits(state.genome.blocks);
-      out.max_start_loss = limits.start;
-      out.max_end_loss = limits.end;
+      // Both limits are the full block padding, PADDING. They are one pair for the whole scheme,
+      // so sending the least padding any block achieved held every span to the worst one and made
+      // one picked gene break another; what a block short of padding risks is said in its list
+      // entry instead. Per-span limits in tile_spans would let this be exact.
+      out.max_start_loss = PADDING;
+      out.max_end_loss = PADDING;
       // The diagram and every span above were read off this reference. The engine's own default is
       // the first sequence left after length filtering, which is another one as soon as the first
       // is a length outlier, so the run has to be told which sequence the spans belong to: without
