@@ -312,6 +312,21 @@ class Amplicon:
     overlap_next: int | None  # insert overlap with the next amplicon (consensus bp)
 
 
+@dataclass(frozen=True)
+class EdgeAdvice:
+    """A better tiling that giving up more bases at one span edge would allow.
+
+    The result never acts on it; limit is the flag value that reproduces the better tiling.
+    """
+
+    span: str | None  # the span's name; None for a whole-genome run
+    end: str  # "start" or "end"
+    limit: int  # --max-start-loss / --max-end-loss value that reproduces the better tiling
+    extra_loss: int  # limit minus the limit in force: extra genome bases given up
+    worst_before: float  # weakest amplicon's coverage (% of sequences) in the span now
+    worst_after: float  # ... and in the better tiling
+
+
 @dataclass
 class TilingResult:
     amplicons: list[Amplicon]
@@ -321,6 +336,7 @@ class TilingResult:
     dimer_warnings: list[str]
     uncovered_ends: tuple[int, int]  # reference bases outside the first / last insert
     spanned: bool = False  # tiled chosen spans, not the whole genome
+    edge_advice: list[EdgeAdvice] = field(default_factory=list)
 
 
 @dataclass
