@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 OUTPUT_FILES = (
@@ -34,6 +35,18 @@ def reference(out: Path) -> tuple[str | None, int | None]:
     return ref, length if current == ref else None
 
 
+def edge_advice(out: Path) -> list[dict]:
+    """The engine's edge advice (advice.json), or [] when it has none or the file is unreadable."""
+    path = out / "advice.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except ValueError:
+        return []
+    return data if isinstance(data, list) else []
+
+
 def build_result(job_dir: Path, argv: list[str], code: int) -> dict:
     """The result object for a run whose log is job_dir/log.txt and outputs job_dir/out."""
     job_dir = Path(job_dir)
@@ -56,6 +69,7 @@ def build_result(job_dir: Path, argv: list[str], code: int) -> dict:
         "rows": read_rows(table) if table.is_file() and code != 1 else [],
         "reference_id": ref,
         "reference_length": ref_len,
+        "advice": edge_advice(out) if code != 1 else [],
         "warnings": [ln[len("WARNING: "):] for ln in lines if ln.startswith("WARNING: ")],
         "error": (errors or usage or ["the job failed; see the log"])[-1] if code == 1 else None,
     }
