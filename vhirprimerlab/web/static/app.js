@@ -1344,12 +1344,21 @@ import {
       ['Sequences', fmt(best.length ? best[0].n_total : 0)],
       ['Reference', fmt(G), ' bp'],
     ]);
+    // overlapping amplicons go on separate rows, so no bar hides another one's label
+    const laneOf = new Map();
+    const laneEnds = [];
+    best.filter((r) => +r.amplicon_start > 0).sort((a, b) => +a.amplicon_start - +b.amplicon_start).forEach((r) => {
+      let lane = laneEnds.findIndex((end) => end < +r.amplicon_start);
+      if (lane < 0) { lane = laneEnds.length; laneEnds.push(0); }
+      laneEnds[lane] = +r.amplicon_end;
+      laneOf.set(r, lane);
+    });
     const items = best.map((r, i) => ({
-      key: i + 1, label: m === 'check' ? r.name : r.region, lane: 0, start: +r.amplicon_start, end: +r.amplicon_end,
+      key: i + 1, label: m === 'check' ? r.name : r.region, lane: laneOf.get(r) || 0, start: +r.amplicon_start, end: +r.amplicon_end,
       low: r.below_threshold === 'True',
       detail: `${nameOf(r)} · ${span(r)} · covers ${r.n_covered} of ${r.n_total} sequences (${pct(r.coverage_pct)})${r.note ? ` · ${r.note}` : ''}`,
     }));
-    drawMap(items, G, [m === 'check' ? 'Pairs' : 'Best pairs']);
+    drawMap(items, G, [m === 'check' ? 'Pairs' : 'Best pairs', ...Array(Math.max(0, laneEnds.length - 1)).fill('')]);
     $('map-detail').textContent = 'Point at a pair to see its position and coverage.';
     const keyOf = new Map(best.map((r, i) => [r, i + 1]));
     const head = [['Name'], ['Primers (5′→3′)'], ['Position', 'num'], ['Coverage', 'num']];
