@@ -9,7 +9,7 @@ import os
 import shlex
 import statistics
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, NoReturn
 
@@ -22,6 +22,7 @@ from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.degenerate import degenerate_pair, tm_range
 from vhirprimerlab.design import run_primer3
 from vhirprimerlab.io import (
+    advice_line,
     alignment_from_records,
     load_fasta,
     region_order,
@@ -440,6 +441,13 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         log.warning("Amplicons below --min-coverage: %s", ", ".join(low))
     else:
         log.info("All %d amplicons meet %g%% coverage", len(result.amplicons), a.min_coverage)
+    for adv in result.edge_advice:
+        log.warning("%s", advice_line(adv))
+    advice_file = a.outdir / "advice.json"  # machine-readable, for a page that offers a re-run
+    if result.edge_advice:
+        advice_file.write_text(json.dumps([asdict(adv) for adv in result.edge_advice], indent=2) + "\n")
+    else:
+        advice_file.unlink(missing_ok=True)  # a reused outdir must not keep an old run's advice
     report = TilingReport(
         command=command, params=_report_params(a), n_input=len(inp.records),
         median_len=float(statistics.median(inp.lengths)), min_len=min(inp.lengths),

@@ -21,6 +21,7 @@ from vhirprimerlab.models import (
     Amplicon,
     ColumnStats,
     Consensus,
+    EdgeAdvice,
     Geometry,
     PipelineError,
     PrimerCandidate,
@@ -362,6 +363,74 @@ def _no_fit(
     )
 
 
+def _candidates(aln: Alignment, cons: Consensus, stats: list[ColumnStats], params: TilingParams,
+                span: tuple[int, int], progress: Progress | None = None):
+    """Forward and reverse primers for span, scored against every sequence."""
+    raw_f, raw_r = enumerate_primers(cons.seq, params, span)
+    picked = pick_conserved(raw_f, stats, cons, params) + pick_conserved(raw_r, stats, cons, params)
+    scored = score_primers(picked, aln, cons, params, progress=progress, span=span)
+    return [c for c in scored if c.strand == "+"], [c for c in scored if c.strand == "-"]
+
+
+def _coverages(path: Path_, aln: Alignment, params: TilingParams) -> list[float]:
+    """Each amplicon's coverage %, scored exactly as Amplicon.coverage is."""
+    return [score_pair(f.site, f.cols, r.site, r.cols, aln, params.scoring).coverage_pct
+            for f, r in path]
+
+
+def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry,
+                 params: TilingParams, span, aln: Alignment, cons: Consensus,
+                 stats: list[ColumnStats]) -> list[EdgeAdvice]:
+    """Where giving up more bases at one span edge would lift that edge amplicon's coverage.
+
+    Judged on the edge amplicon itself; the weakest amplicon is only a guard, so advice
+    never makes it worse. Each end is explored alone, with the other end's limit
+    untouched, because a generous allowance at both ends also spends bases at the end that
+    gains nothing. Exploring reuses the scored primers, which is cheap, but the primers
+    depend on the limit (the end rules reach as far as it does), so every answer is
+    checked by choosing again, dimers avoided, under the limit it names, and only what
+    that check shows is advised. Nothing here changes the tiling chosen.
+    """
+    worst = min(a.coverage.coverage_pct for a in amplicons)
+    names = [_pair_name(k) for k in range(1, n + 1)]
+    advice: list[EdgeAdvice] = []
+    for end, edge, flag, at in (("start", amplicons[0], "max_start_loss", 0),
+                                ("end", amplicons[-1], "max_end_loss", -1)):
+        asked = getattr(params, flag)
+        if not edge.below_threshold or asked >= geom.target_len:
+            continue  # one amplicon is as far in as it is worth looking
+        before = edge.coverage.coverage_pct
+        cur, best, found = params, before, None
+        cur_f, cur_r = fwds, revs
+        while getattr(cur, flag) < geom.target_len:
+            path, _ = _choose_any(cur_f, cur_r, n, geoms, dataclasses.replace(
+                cur, **{flag: geom.target_len}), span, set())
+            if not path:
+                break
+            pcts = _coverages(path, aln, params)
+            if pcts[at] <= best or min(pcts) < worst:
+                break  # nothing better to prove, so no costly check
+            # the better tiling's own loss, not the cap explored: re-running with it keeps this
+            # end from spending more than the tiling needs, and the other end is as it was
+            limit = end_loss(path[0][0] if end == "start" else path[-1][1], span)
+            if limit <= getattr(cur, flag):
+                break
+            cur = dataclasses.replace(params, **{flag: limit})
+            cur_f, cur_r = _candidates(aln, cons, stats, cur, span)
+            path, g = _choose_any(cur_f, cur_r, n, geoms, cur, span, set())
+            if not path:
+                break
+            # a re-run avoids dimers, which can swap primers: promise what it produces
+            path, _ = _avoid_dimers(path, names, g, cur_f, cur_r, n, geoms, cur, span)
+            pcts = _coverages(path, aln, params)
+            if pcts[at] <= best or min(pcts) < worst:
+                break
+            best, found = pcts[at], limit
+        if found is not None:
+            advice.append(EdgeAdvice(None, end, found, found - asked, before, best))
+    return advice
+
+
 def tile(
     aln: Alignment,
     cons: Consensus,
@@ -401,12 +470,8 @@ def tile(
                     geoms[0].target_len)
 
     report("finding primers", 0.10)
-    raw_f, raw_r = enumerate_primers(cons.seq, params, span)
-    picked = pick_conserved(raw_f, stats, cons, params) + pick_conserved(raw_r, stats, cons, params)
-    scored = score_primers(picked, aln, cons, params,
-                           progress=lambda stage, f: report(stage, 0.15 + 0.65 * f), span=span)
-    fwds = [c for c in scored if c.strand == "+"]
-    revs = [c for c in scored if c.strand == "-"]
+    fwds, revs = _candidates(aln, cons, stats, params, span,
+                             lambda stage, f: report(stage, 0.15 + 0.65 * f))
     log.info("Candidate primers: %d forward, %d reverse", len(fwds), len(revs))
 
     report("choosing amplicons", 0.85)
@@ -436,7 +501,9 @@ def tile(
     span_last = cmap.ref_length if span[1] == len(cons.seq) - 1 else _ref(cmap, cons, span[1], "end")
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
-    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends)
+    advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats)
+    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends,
+                        edge_advice=advice)
 
 
 def tile_spans(
@@ -492,6 +559,8 @@ def tile_spans(
             "not be told apart in primers.tsv or scheme.bed: rename one of the regions"
         )
     ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
+    advice = [dataclasses.replace(a, span=span.name)
+              for span, part in zip(spans, parts) for a in part.edge_advice]
     return TilingResult(amplicons, parts[0].geometry,
                         sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
-                        _dimers(path, names), ends, spanned=True)
+                        _dimers(path, names), ends, spanned=True, edge_advice=advice)

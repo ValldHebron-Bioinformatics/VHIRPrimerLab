@@ -5,6 +5,9 @@ import {
   END_LOSS, PAD, PADDING, ampliconCount, blockFromFeature, lossNotes, maxAmplicons, mergeBlocks,
   minAmpliconLen, smallestSpan, snapPosition, targetLength,
 } from './blocks.js';
+import {
+  adviceSentence, isAdviceWarning, rerunJob, rerunLabel, sharedNote,
+} from './advice.js';
 
 (() => {
   const $ = (id) => document.getElementById(id);
@@ -1196,15 +1199,62 @@ import {
     $('downloads').hidden = false;
   }
 
-  function renderNotes(warnings) {
+  function renderNotes(warnings, advice) {
     const ul = $('notes');
     ul.textContent = '';
-    (warnings || []).filter((w) => !/^Pairs? |^Amplicons below|^Regions without/.test(w)).forEach((w) => {
+    const shown = advice || [];
+    // The engine's own line for the same advice ends in a command-line flag; the sentence from
+    // renderAdvice replaces it, so only the lines that have no such replacement stay.
+    (warnings || []).filter((w) => !/^Pairs? |^Amplicons below|^Regions without/.test(w)
+      && !(shown.length && isAdviceWarning(w))).forEach((w) => {
       const li = document.createElement('li');
       li.textContent = w;
       ul.append(li);
     });
+    renderAdvice(ul, shown);
     ul.hidden = !ul.children.length;
+  }
+
+  // The engine only advises, so this offers the re-run and never starts it. The design takes one
+  // allowance per end, so the button raises each end to the largest limit advised for it, and the
+  // page says when that reaches spans that did not ask.
+  function renderAdvice(ul, advice) {
+    if (!advice.length) return;
+    const list = document.createElement('li');
+    list.className = 'advice';
+    advice.forEach((a) => {
+      const p = document.createElement('p');
+      p.textContent = adviceSentence(a);
+      list.append(p);
+    });
+    const job = state.lastJob;
+    const spans = job && job.settings.tile_regions ? job.settings.tile_regions.length : 1;
+    const shared = sharedNote(advice, spans);
+    if (shared) {
+      const p = document.createElement('p');
+      p.textContent = shared;
+      list.append(p);
+    }
+    // A run reopened from its link has no settings to start again from.
+    if (job) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-quiet';
+      btn.textContent = rerunLabel(advice);
+      btn.addEventListener('click', () => {
+        const next = rerunJob(job, advice);
+        // Tile mode keeps these two in Advanced fields; showing the new values there keeps the
+        // form and the run it just made in step.
+        if (next.mode === 'tile') {
+          ['max_start_loss', 'max_end_loss'].forEach((key) => {
+            if (key in next.settings && $(key)) $(key).value = next.settings[key];
+          });
+        }
+        startRun(next);
+      });
+      list.append(btn);
+    }
+    ul.append(list);
   }
 
   function renderTile(st, res) {
@@ -1333,7 +1383,7 @@ import {
     }
     if (res.mode === 'tile') renderTile(st, res);
     else renderPairs(st, res, res.mode);
-    renderNotes(res.warnings);
+    renderNotes(res.warnings, res.advice);
   }
 
   function showRetry() {

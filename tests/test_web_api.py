@@ -188,3 +188,26 @@ def test_a_genes_job_reads_the_amplicon_table(tmp_path: Path) -> None:
     res = build_result(tmp_path, ["-i", "input.fasta", "--tile-region", "F:1-900"], 0)
     assert res["mode"] == "tile"
     assert len(res["rows"]) == 1
+
+
+def test_build_result_carries_the_edge_advice(tmp_path: Path) -> None:
+    import json
+
+    from vhirprimerlab.web.result import OUTPUT_FILES, build_result
+
+    advice = [{"span": "F", "end": "start", "limit": 159, "extra_loss": 59,
+               "edge_before": 43.01075268817204, "edge_after": 97.84946236559139}]
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "amplicons.tsv").write_text("amplicon\tstart\n1\t1\n")
+    (tmp_path / "out" / "advice.json").write_text(json.dumps(advice))
+    res = build_result(tmp_path, ["-i", "input.fasta", "--tile-region", "F:1-900"], 0)
+    assert res["advice"] == advice
+    assert "advice.json" not in OUTPUT_FILES  # machine-readable, not a download
+
+
+def test_build_result_without_advice_has_an_empty_list(tmp_path: Path) -> None:
+    from vhirprimerlab.web.result import build_result
+
+    (tmp_path / "out").mkdir()
+    assert build_result(tmp_path, ["check"], 0)["advice"] == []
+    assert build_result(tmp_path, ["-n", "4"], 1)["advice"] == []

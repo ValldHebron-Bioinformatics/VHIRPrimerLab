@@ -16,6 +16,7 @@ from vhirprimerlab.models import (
     Alignment,
     CheckReport,
     CheckResult,
+    EdgeAdvice,
     PipelineError,
     Record,
     RegionResult,
@@ -418,6 +419,15 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
     Path(path).write_text("".join(line + "\n" for line in lines))
 
 
+def advice_line(adv: EdgeAdvice) -> str:
+    """One line naming the gain from loosening an edge and the flag to re-run with."""
+    of = adv.span or "the genome"
+    which = "first" if adv.end == "start" else "last"
+    return (f"The {which} amplicon of {of} covers {adv.edge_before:.1f} % of your sequences; "
+            f"giving up {adv.extra_loss} more bases at its {adv.end} would reach "
+            f"{adv.edge_after:.1f} %: add --max-{adv.end}-loss {adv.limit}")
+
+
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
@@ -442,6 +452,10 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]
     out += ["", "Primer dimers", "-------------"]
     out += [f"  {w}" for w in res.dimer_warnings] or ["none"]
+    if res.edge_advice:
+        out += ["", "Edge advice", "-----------",
+                "  The result above is what you asked for; these re-runs would do better:"]
+        out += [f"  {advice_line(adv)}" for adv in res.edge_advice]
     low = [str(a.index) for a in res.amplicons if a.below_threshold]
     out += ["", "Summary", "-------",
             f"Amplicons below {mc:g} % coverage: {', '.join(low)}" if low
