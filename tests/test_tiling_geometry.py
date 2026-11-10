@@ -18,7 +18,7 @@ def test_target_length() -> None:
 def test_geometry_values() -> None:
     g = geometry(6000, 5, 50, 0.20, 25)
     assert g is not None
-    assert (g.target_len, g.len_min, g.len_max, g.end_slack) == (1240, 992, 1488, 310)
+    assert (g.target_len, g.len_min, g.len_max) == (1240, 992, 1488)
     assert g.max_outer_overlap == 495
     assert g.tolerance == 0.20
 

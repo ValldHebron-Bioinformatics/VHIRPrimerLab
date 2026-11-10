@@ -53,15 +53,24 @@ so overlapping products never share a tube. It writes:
 ### How the amplicons are chosen
 
 1. Every position of the consensus is tried as a primer 3′ end; primers outside the Tm, GC and
-   length limits, or with hairpins, self-dimers or a G/C-heavy 3′ end, are dropped.
+   length limits, or with hairpins, self-dimers or a G/C-heavy 3′ end, are dropped. Within
+   `--max-start-loss` of the genome start and `--max-end-loss` of its end, where the sequence
+   is often AT-rich, primers may be up to 32 nt long and have any GC %, so that a primer with
+   the right Tm can still reach the end.
 2. The most conserved primers are kept and checked against every sequence with the matching
    rules below. Degenerate (IUPAC) bases are added where they rescue sequences, up to
    `--max-degeneracy` variants per primer, as long as the primer's GC % (averaged over its
    variants) stays within `--gc-min`/`--gc-max` and no variant forms a hairpin, a self-dimer
    (also between two variants of the mix) or a G/C-heavy 3′ end.
-3. A dynamic-programming search picks exactly N amplicons: it maximises the worst amplicon's
-   coverage, then the total coverage, then how close the tiling reaches both genome ends, then
-   primer quality. Amplicon lengths may vary ±20 % around the target; if no tiling fits, the
+3. A dynamic-programming search picks exactly N amplicons. The first insert must start within
+   `--max-start-loss` (50) bases of the genome start, and the last one end within
+   `--max-end-loss` (50) bases of its end; the two limits are separate, since one end is often
+   harder than the other. Within that, it maximises the worst amplicon's coverage, then the
+   total coverage, then how many sequences each primer matches on its own, then how close the
+   tiling reaches both genome ends, then primer quality. Sequences that stop short of a genome
+   end count as not covered by the end amplicon, so an alignment with incomplete ends shows a
+   low coverage there. If no primer reaches an end, the tool says which limit to raise and to
+   what: RSV, for one, has no primer with a usable Tm in its last ~270 bases. Amplicon lengths may vary ±20 % around the target; if no tiling fits, the
    tool retries at ±35 % and ±50 % and says so.
 4. Primers in the same pool are checked for primer-dimers (ΔG below −9 kcal/mol between any
    variant of one primer and any variant of the other). A primer in a dimer is swapped for
@@ -75,6 +84,8 @@ so overlapping products never share a tube. It writes:
 |---|---|---|
 | `-n/--amplicons` | — | number of amplicons |
 | `--overlap` | 50 | minimum overlap between neighbouring amplicons (bp, between the primers) |
+| `--max-start-loss` | 50 | most genome bases left outside the first insert (bp, primer included) |
+| `--max-end-loss` | 50 | most genome bases left outside the last insert (bp, primer included) |
 | `--tm-min/--tm-opt/--tm-max` | 57 / 60 / 63 | primer Tm (°C) |
 | `--max-tm-diff` | 2 | max Tm difference within a pair (°C) |
 | `--primer-len-min/--primer-len-max` | 18 / 25 | primer length |
