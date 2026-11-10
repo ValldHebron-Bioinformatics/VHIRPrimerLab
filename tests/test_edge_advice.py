@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import dataclasses
+import random
 
 import pytest
 
-from tests.synthetic import make_genome_family
+from tests.synthetic import _substitute, make_genome_family
 from tests.test_tiling import PARAMS, _params, _prepare
 from vhirprimerlab import tiling
 from vhirprimerlab.models import Region
@@ -32,13 +33,40 @@ def _worst(res) -> float:
     return min(a.coverage.coverage_pct for a in res.amplicons)
 
 
+def _edge(res, end: str) -> float:
+    return res.amplicons[0 if end == "start" else -1].coverage.coverage_pct
+
+
+def _interior_poor():
+    """START_POOR with a wide variable block inside: interior amplicons end up weaker than the edge."""
+    rng = random.Random(1)
+    rows = make_genome_family(**START_POOR)
+    out = [rows[0]]
+    for rid, seq in rows[1:]:
+        seq = list(seq)
+        for i in range(1500, 4500):
+            if rng.random() < 0.4:
+                seq[i] = _substitute(rng, seq[i])
+        out.append((rid, "".join(seq)))
+    return _prepare(out)
+
+
+@pytest.fixture(scope="module")
+def interior_poor():
+    return _interior_poor()
+
+
+def _coords(res):
+    return [(a.fwd.start, a.fwd.seq, a.rev.start, a.rev.seq) for a in res.amplicons]
+
+
 def test_advice_when_loosening_the_start_helps(start_poor) -> None:
     res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
     assert res.amplicons[0].below_threshold
     [adv] = res.edge_advice
     assert (adv.span, adv.end) == (None, "start")
-    assert adv.worst_before == pytest.approx(_worst(res)) and adv.worst_before < 95
-    assert adv.worst_after > adv.worst_before
+    assert adv.edge_before == pytest.approx(_edge(res, "start")) and adv.edge_before < 95
+    assert adv.edge_after > adv.edge_before
     assert adv.extra_loss == adv.limit - 50 > 0
 
 
@@ -46,9 +74,9 @@ def test_advice_is_reproduced_by_rerunning_with_its_flag(start_poor) -> None:
     base = _params(n_amplicons=5, max_end_loss=60)
     adv = tile(*start_poor, base).edge_advice[0]
     again = tile(*start_poor, dataclasses.replace(base, max_start_loss=adv.limit))
-    assert _worst(again) == pytest.approx(adv.worst_after)
+    assert _edge(again, "start") == pytest.approx(adv.edge_after)
     assert again.edge_advice == []  # nothing further to offer once it is taken
-    assert _worst(again) > adv.worst_before
+    assert _edge(again, "start") > adv.edge_before
 
 
 def test_advice_for_the_end(end_poor) -> None:
@@ -56,26 +84,59 @@ def test_advice_for_the_end(end_poor) -> None:
     [adv] = res.edge_advice
     assert adv.end == "end" and res.amplicons[-1].below_threshold
     again = tile(*end_poor, _params(n_amplicons=5, max_start_loss=60, max_end_loss=adv.limit))
-    assert _worst(again) == pytest.approx(adv.worst_after)
+    assert _edge(again, "end") == pytest.approx(adv.edge_after)
 
 
-def test_the_result_is_what_was_asked_for(start_poor) -> None:
+def test_the_result_is_what_was_asked_for(start_poor, monkeypatch) -> None:
     asked = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
     assert asked.edge_advice
-    # same primers as a run in which the advice cannot be explored (limit at the cap)
-    spy_calls = []
-    original = tiling._choose_any
-    def spy(*args):
-        spy_calls.append(args)
-        return original(*args)
-    tiling._choose_any = spy
-    try:
-        again = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
-    finally:
-        tiling._choose_any = original
-    assert [(a.fwd.start, a.rev.start) for a in again.amplicons] == \
-           [(a.fwd.start, a.rev.start) for a in asked.amplicons]
-    assert again.amplicons[0].fwd.start <= 50  # still inside the asked-for window
+    # the same input with the advice switched off: the primers must be identical
+    monkeypatch.setattr(tiling, "_edge_advice", lambda *a, **k: [])
+    plain = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
+    assert plain.edge_advice == []
+    assert _coords(asked) == _coords(plain)
+    assert asked.amplicons[0].fwd.end + 1 <= 50  # still inside the asked-for window
+
+
+def test_two_passes_when_the_first_answer_can_be_improved(start_poor, monkeypatch) -> None:
+    # the screen on the primers as first scored names 104, which only reaches 40 %; choosing
+    # again under 104 finds 108 reaches 100 %: the advice is the second pass, not the first
+    limits = []
+    original = tiling._candidates
+    def spy(aln, cons, stats, params, span, progress=None):
+        limits.append(params.max_start_loss)
+        return original(aln, cons, stats, params, span, progress)
+    monkeypatch.setattr(tiling, "_candidates", spy)
+    res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
+    assert len(limits) == 3 and limits[0] == 50 and limits[1] < limits[2]  # run, pass 1, pass 2
+    [adv] = res.edge_advice
+    assert adv.limit == limits[2] and adv.edge_after == 100.0
+
+
+def test_advice_is_judged_on_the_edge_not_the_weakest(interior_poor) -> None:
+    res = tile(*interior_poor, _params(n_amplicons=5, max_end_loss=60))
+    edge = _edge(res, "start")
+    assert _worst(res) < edge < 95  # an interior amplicon is the weakest
+    [adv] = res.edge_advice
+    assert adv.edge_before == pytest.approx(edge) and adv.edge_after > edge
+    again = tile(*interior_poor, _params(n_amplicons=5, max_end_loss=60, max_start_loss=adv.limit))
+    assert _edge(again, "start") == pytest.approx(adv.edge_after)
+    assert _worst(again) >= _worst(res)  # the weakest is no worse
+
+
+def test_advice_promises_what_dimer_avoidance_leaves(interior_poor, monkeypatch) -> None:
+    base = _params(n_amplicons=5, max_end_loss=60)
+    first = tile(*interior_poor, base).edge_advice[0]
+    clean = tile(*interior_poor, dataclasses.replace(base, max_start_loss=first.limit))
+    bad = clean.amplicons[0].fwd.seq
+    # that edge primer now forms a dimer with everything, so a re-run swaps it out (the
+    # interior amplicon is the weakest, so the swap costs no coverage and is kept)
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -12000.0 if bad in (a, b) else -3000.0)
+    [adv] = tile(*interior_poor, base).edge_advice
+    assert adv.edge_after < first.edge_after  # no longer the 100 % of the dimer-prone primer
+    rerun = tile(*interior_poor, dataclasses.replace(base, max_start_loss=adv.limit))
+    assert rerun.amplicons[0].fwd.seq != bad
+    assert _edge(rerun, "start") == pytest.approx(adv.edge_after)
 
 
 def test_only_the_poor_end_is_loosened_and_to_one_amplicon(start_poor, monkeypatch) -> None:
@@ -129,6 +190,41 @@ def test_no_advice_when_loosening_finds_no_tiling(start_poor, monkeypatch) -> No
     assert tile(*start_poor, _params(n_amplicons=5, max_end_loss=60)).edge_advice == []
 
 
+def test_no_advice_when_the_check_finds_it_worse(start_poor, monkeypatch) -> None:
+    original = tiling._choose_any
+    calls: list = []
+    def worse_check(fwds, revs, n, geoms, params, span, banned):
+        out = original(fwds, revs, n, geoms, params, span, banned)
+        calls.append(out)
+        return calls[0] if len(calls) >= 3 else out  # the check turns out no better than the run
+    monkeypatch.setattr(tiling, "_choose_any", worse_check)
+    res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
+    assert len(calls) == 3 and res.edge_advice == []  # screened, checked, nothing to advise
+
+
+def test_no_advice_when_the_check_finds_no_tiling(start_poor, monkeypatch) -> None:
+    original = tiling._choose_any
+    calls = []
+    def nothing_on_check(fwds, revs, n, geoms, params, span, banned):
+        calls.append(1)
+        if len(calls) >= 3:
+            return None, geoms[-1]
+        return original(fwds, revs, n, geoms, params, span, banned)
+    monkeypatch.setattr(tiling, "_choose_any", nothing_on_check)
+    res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
+    assert len(calls) == 3 and res.edge_advice == []
+
+
+def test_no_advice_when_it_would_make_the_weakest_worse(start_poor, monkeypatch) -> None:
+    calls = []
+    original = tiling._choose_any
+    monkeypatch.setattr(tiling, "_choose_any", lambda *a: calls.append(a) or original(*a))
+    # the explored tiling lifts the edge but drops an interior amplicon below today's weakest
+    monkeypatch.setattr(tiling, "_coverages", lambda path, aln, params: [100.0, 1.0] + [100.0] * (len(path) - 2))
+    res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
+    assert res.edge_advice == [] and len(calls) == 2  # run, screen: no costly check
+
+
 def test_no_advice_when_the_limit_is_already_one_amplicon(start_poor, monkeypatch) -> None:
     calls = []
     original = tiling._choose_any
@@ -141,4 +237,4 @@ def test_tile_spans_names_the_span(start_poor) -> None:
     res = tile_spans(*start_poor, _params(amplicon_len=1000, max_end_loss=60),
                      [Region("F", 1, 3000), Region("G", 3201, 5800)])
     assert [(a.span, a.end) for a in res.edge_advice] == [("F", "start")]
-    assert res.edge_advice[0].worst_after > res.edge_advice[0].worst_before
+    assert res.edge_advice[0].edge_after > res.edge_advice[0].edge_before

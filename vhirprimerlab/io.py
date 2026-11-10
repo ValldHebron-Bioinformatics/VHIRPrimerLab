@@ -421,11 +421,11 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
 
 def advice_line(adv: EdgeAdvice) -> str:
     """One line naming the gain from loosening an edge and the flag to re-run with."""
-    where = f"the {adv.end} of {adv.span}" if adv.span else f"the {adv.end} of the genome"
-    flag = f"--max-{adv.end}-loss"
-    return (f"The weakest amplicon covers {adv.worst_before:.1f} % of your sequences; giving up "
-            f"{adv.extra_loss} more bases at {where} would reach {adv.worst_after:.1f} %: "
-            f"add {flag} {adv.limit}")
+    of = adv.span or "the genome"
+    which = "first" if adv.end == "start" else "last"
+    return (f"The {which} amplicon of {of} covers {adv.edge_before:.1f} % of your sequences; "
+            f"giving up {adv.extra_loss} more bases at its {adv.end} would reach "
+            f"{adv.edge_after:.1f} %: add --max-{adv.end}-loss {adv.limit}")
 
 
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:

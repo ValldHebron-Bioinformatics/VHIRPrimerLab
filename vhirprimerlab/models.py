@@ -314,7 +314,7 @@ class Amplicon:
 
 @dataclass(frozen=True)
 class EdgeAdvice:
-    """A better tiling that giving up more bases at one span edge would allow.
+    """A better edge amplicon that giving up more bases at one span edge would allow.
 
     The result never acts on it; limit is the flag value that reproduces the better tiling.
     """
@@ -323,8 +323,8 @@ class EdgeAdvice:
     end: str  # "start" or "end"
     limit: int  # --max-start-loss / --max-end-loss value that reproduces the better tiling
     extra_loss: int  # limit minus the limit in force: extra genome bases given up
-    worst_before: float  # weakest amplicon's coverage (% of sequences) in the span now
-    worst_after: float  # ... and in the better tiling
+    edge_before: float  # the edge amplicon's coverage (% of sequences) now
+    edge_after: float  # ... and in the better tiling (the weakest amplicon is no worse)
 
 
 @dataclass

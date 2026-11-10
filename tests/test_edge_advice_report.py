@@ -17,7 +17,7 @@ from vhirprimerlab.models import EdgeAdvice, LengthFilterResult, TilingReport
 from vhirprimerlab.tiling import tile
 
 ADVICE = EdgeAdvice(span="F", end="start", limit=176, extra_loss=76,
-                    worst_before=43.0, worst_after=94.6)
+                    edge_before=43.0, edge_after=94.6)
 
 
 def _report(result) -> TilingReport:
@@ -35,7 +35,8 @@ def test_report_section(start_poor, tmp_path: Path) -> None:
     text = (tmp_path / "r.txt").read_text()
     assert "Edge advice" in text
     line = next(ln for ln in text.splitlines() if "--max-start-loss 176" in ln)
-    assert "F" in line and "76" in line and "43.0" in line and "94.6" in line
+    assert line.strip() == ("The first amplicon of F covers 43.0 % of your sequences; giving up 76 "
+                            "more bases at its start would reach 94.6 %: add --max-start-loss 176")
     assert text.index("Edge advice") < text.index("Summary")
 
 
@@ -72,3 +73,12 @@ def test_cli_without_advice_writes_no_advice_json(tmp_path: Path) -> None:
     aln = write_fasta(tmp_path / "aln.fasta", make_genome_family())
     main(["--aligned", str(aln), "-n", "5", "-o", str(tmp_path / "out")])
     assert not (tmp_path / "out" / "advice.json").exists()
+
+
+def test_cli_removes_a_stale_advice_json(tmp_path: Path) -> None:
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "advice.json").write_text('[{"stale": true}]')
+    aln = write_fasta(tmp_path / "aln.fasta", make_genome_family())
+    main(["--aligned", str(aln), "-n", "5", "-o", str(out)])
+    assert not (out / "advice.json").exists()

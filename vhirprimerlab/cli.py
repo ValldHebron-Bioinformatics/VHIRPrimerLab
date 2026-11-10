@@ -22,11 +22,11 @@ from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.degenerate import degenerate_pair, tm_range
 from vhirprimerlab.design import run_primer3
 from vhirprimerlab.io import (
+    advice_line,
     alignment_from_records,
     load_fasta,
     region_order,
     tiling_order,
-    advice_line,
     write_alignment,
     write_check_report,
     write_check_tsv,
@@ -443,9 +443,11 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         log.info("All %d amplicons meet %g%% coverage", len(result.amplicons), a.min_coverage)
     for adv in result.edge_advice:
         log.warning("%s", advice_line(adv))
-    if result.edge_advice:  # machine-readable, for a page that offers the re-run as a button
-        (a.outdir / "advice.json").write_text(
-            json.dumps([asdict(adv) for adv in result.edge_advice], indent=2) + "\n")
+    advice_file = a.outdir / "advice.json"  # machine-readable, for a page that offers a re-run
+    if result.edge_advice:
+        advice_file.write_text(json.dumps([asdict(adv) for adv in result.edge_advice], indent=2) + "\n")
+    else:
+        advice_file.unlink(missing_ok=True)  # a reused outdir must not keep an old run's advice
     report = TilingReport(
         command=command, params=_report_params(a), n_input=len(inp.records),
         median_len=float(statistics.median(inp.lengths)), min_len=min(inp.lengths),

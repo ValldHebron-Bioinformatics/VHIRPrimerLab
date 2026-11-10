@@ -372,37 +372,43 @@ def _candidates(aln: Alignment, cons: Consensus, stats: list[ColumnStats], param
     return [c for c in scored if c.strand == "+"], [c for c in scored if c.strand == "-"]
 
 
-def _worst_pct(path: Path_, aln: Alignment, params: TilingParams) -> float:
-    """The weakest amplicon's coverage, scored exactly as Amplicon.coverage is."""
-    return min(score_pair(f.site, f.cols, r.site, r.cols, aln, params.scoring).coverage_pct
-               for f, r in path)
+def _coverages(path: Path_, aln: Alignment, params: TilingParams) -> list[float]:
+    """Each amplicon's coverage %, scored exactly as Amplicon.coverage is."""
+    return [score_pair(f.site, f.cols, r.site, r.cols, aln, params.scoring).coverage_pct
+            for f, r in path]
 
 
 def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry,
                  params: TilingParams, span, aln: Alignment, cons: Consensus,
                  stats: list[ColumnStats]) -> list[EdgeAdvice]:
-    """Where giving up more bases at one span edge would give a better weakest amplicon.
+    """Where giving up more bases at one span edge would lift that edge amplicon's coverage.
 
-    Each end is explored alone, with the other end's limit untouched, because a generous
-    allowance at both ends also spends bases at the end that gains nothing. Exploring
-    reuses the scored primers, which is cheap, but the primers depend on the limit (the end
-    rules reach as far as it does), so every answer is checked by choosing again under the
-    limit it names, and only what that check shows is advised. Nothing here changes the
-    tiling chosen.
+    Judged on the edge amplicon itself; the weakest amplicon is only a guard, so advice
+    never makes it worse. Each end is explored alone, with the other end's limit
+    untouched, because a generous allowance at both ends also spends bases at the end that
+    gains nothing. Exploring reuses the scored primers, which is cheap, but the primers
+    depend on the limit (the end rules reach as far as it does), so every answer is
+    checked by choosing again, dimers avoided, under the limit it names, and only what
+    that check shows is advised. Nothing here changes the tiling chosen.
     """
     worst = min(a.coverage.coverage_pct for a in amplicons)
+    names = [_pair_name(k) for k in range(1, n + 1)]
     advice: list[EdgeAdvice] = []
-    for end, edge, flag in (("start", amplicons[0], "max_start_loss"),
-                            ("end", amplicons[-1], "max_end_loss")):
+    for end, edge, flag, at in (("start", amplicons[0], "max_start_loss", 0),
+                                ("end", amplicons[-1], "max_end_loss", -1)):
         asked = getattr(params, flag)
         if not edge.below_threshold or asked >= geom.target_len:
             continue  # one amplicon is as far in as it is worth looking
-        cur, best, found = params, worst, None
+        before = edge.coverage.coverage_pct
+        cur, best, found = params, before, None
         cur_f, cur_r = fwds, revs
         while getattr(cur, flag) < geom.target_len:
             path, _ = _choose_any(cur_f, cur_r, n, geoms, dataclasses.replace(
                 cur, **{flag: geom.target_len}), span, set())
-            if not path or _worst_pct(path, aln, params) <= best:
+            if not path:
+                break
+            pcts = _coverages(path, aln, params)
+            if pcts[at] <= best or min(pcts) < worst:
                 break  # nothing better to prove, so no costly check
             # the better tiling's own loss, not the cap explored: re-running with it keeps this
             # end from spending more than the tiling needs, and the other end is as it was
@@ -411,12 +417,17 @@ def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry
                 break
             cur = dataclasses.replace(params, **{flag: limit})
             cur_f, cur_r = _candidates(aln, cons, stats, cur, span)
-            path, _ = _choose_any(cur_f, cur_r, n, geoms, cur, span, set())
-            if not path or _worst_pct(path, aln, params) <= best:
+            path, g = _choose_any(cur_f, cur_r, n, geoms, cur, span, set())
+            if not path:
                 break
-            best, found = _worst_pct(path, aln, params), limit
+            # a re-run avoids dimers, which can swap primers: promise what it produces
+            path, _ = _avoid_dimers(path, names, g, cur_f, cur_r, n, geoms, cur, span)
+            pcts = _coverages(path, aln, params)
+            if pcts[at] <= best or min(pcts) < worst:
+                break
+            best, found = pcts[at], limit
         if found is not None:
-            advice.append(EdgeAdvice(None, end, found, found - asked, worst, best))
+            advice.append(EdgeAdvice(None, end, found, found - asked, before, best))
     return advice
 
 
