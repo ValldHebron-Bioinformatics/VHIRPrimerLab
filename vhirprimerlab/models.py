@@ -249,6 +249,7 @@ class TilingParams:
     min_coverage: float
     max_start_loss: int = 50  # genome bases allowed outside the first insert
     max_end_loss: int = 50  # genome bases allowed outside the last insert
+    amplicon_len: int = 400  # target amplicon length when tiling chosen spans
 
     @property
     def scoring(self) -> ScoringParams:
@@ -294,15 +295,36 @@ class PrimerCandidate:
         return self.start + self.length - 1
 
 
+def primer_names(name: str) -> tuple[str, str]:
+    """Left and right primer names of an amplicon pair name."""
+    return f"{name}_LEFT", f"{name}_RIGHT"
+
+
 @dataclass
 class Amplicon:
     index: int  # 1-based
+    name: str  # pair name without a side suffix, e.g. VHIRPrimerLab_3
     pool: int
     fwd: PrimerCandidate
     rev: PrimerCandidate
     coverage: PairCoverage
     below_threshold: bool
     overlap_next: int | None  # insert overlap with the next amplicon (consensus bp)
+
+
+@dataclass(frozen=True)
+class EdgeAdvice:
+    """A better edge amplicon that giving up more bases at one span edge would allow.
+
+    The result never acts on it; limit is the flag value that reproduces the better tiling.
+    """
+
+    span: str | None  # the span's name; None for a whole-genome run
+    end: str  # "start" or "end"
+    limit: int  # --max-start-loss / --max-end-loss value that reproduces the better tiling
+    extra_loss: int  # limit minus the limit in force: extra genome bases given up
+    edge_before: float  # the edge amplicon's coverage (% of sequences) now
+    edge_after: float  # ... and in the better tiling (the weakest amplicon is no worse)
 
 
 @dataclass
@@ -313,6 +335,8 @@ class TilingResult:
     n_rev: int
     dimer_warnings: list[str]
     uncovered_ends: tuple[int, int]  # reference bases outside the first / last insert
+    spanned: bool = False  # tiled chosen spans, not the whole genome
+    edge_advice: list[EdgeAdvice] = field(default_factory=list)
 
 
 @dataclass

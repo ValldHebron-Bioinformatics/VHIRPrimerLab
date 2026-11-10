@@ -1,0 +1,8 @@
+[
+  { "label": "Human metapneumovirus", "accession": "NC_039199.1", "note": "13.4 kb" },
+  { "label": "Respiratory syncytial virus A", "accession": "NC_038235.1", "note": "15.2 kb" },
+  { "label": "Respiratory syncytial virus B", "accession": "NC_001781.1", "note": "15.2 kb" },
+  { "label": "SARS-CoV-2", "accession": "NC_045512.2", "note": "29.9 kb" },
+  { "label": "Influenza A (H1N1) segment 4, HA", "accession": "NC_026433.1", "note": "1.7 kb" },
+  { "label": "Influenza A (H1N1) segment 6, NA", "accession": "NC_026434.1", "note": "1.4 kb" }
+]

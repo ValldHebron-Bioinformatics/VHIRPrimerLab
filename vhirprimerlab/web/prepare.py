@@ -13,7 +13,8 @@ from pathlib import Path
 from vhirprimerlab.check import load_assays
 from vhirprimerlab.cli import parse_args, validate_args
 from vhirprimerlab.models import PipelineError
-from vhirprimerlab.tiling import max_amplicons, target_length
+from vhirprimerlab.regions import parse_region_spec
+from vhirprimerlab.tiling import amplicons_for, max_amplicons, target_length
 from vhirprimerlab.web.params import MODES, Limits, build_argv, validate_upload
 
 
@@ -41,6 +42,11 @@ def prepare_job(
                          "use the command line for larger inputs.")
     if not fasta.strip():
         raise ValueError("Add your sequences (FASTA) first.")
+
+    regions = settings.get("tile_regions")
+    if mode == "genes" and not (isinstance(regions, list) and any(
+            isinstance(r, str) and r.strip() for r in regions)):
+        raise ValueError("Pick at least one region on the genome first.")
 
     flags = build_argv(mode, settings)
     argv = (["check"] if mode == "check" else []) + ["-i", "input.fasta"]
@@ -71,6 +77,20 @@ def prepare_job(
             if n > most:
                 raise ValueError(f"N too large: amplicons would be ~"
                                  f"{target_length(longest, n, args.overlap)} bp; use at most {most}")
+        if mode == "genes":
+            total = 0
+            for i, spec in enumerate(args.tile_region, start=1):
+                try:
+                    region = parse_region_spec(spec, i)
+                except PipelineError as exc:
+                    raise ValueError(str(exc)) from None
+                if region.end > longest:
+                    raise ValueError(f"Region {region.name} ends at {region.end:,}, past the end "
+                                     f"of your longest sequence ({longest:,} bp).")
+                total += amplicons_for(region.end - region.start + 1, args.amplicon_len, args.overlap)
+            if total > limits.max_amplicons:
+                raise ValueError(f"These regions need about {total:,} amplicons; the web app tiles "
+                                 f"up to {limits.max_amplicons}. Pick fewer regions or lengthen the amplicons.")
         if mode == "check":
             if not primers_text.strip():
                 raise ValueError("Paste your primer pairs (name, forward, reverse) first.")

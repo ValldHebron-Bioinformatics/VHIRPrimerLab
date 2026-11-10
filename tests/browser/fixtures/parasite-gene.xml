@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"  ?>
+<!DOCTYPE INSDSet PUBLIC "-//NCBI//INSD INSDSeq/EN" "https://www.ncbi.nlm.nih.gov/dtd/INSD_INSDSeq.dtd">
+<INSDSet>
+  <INSDSeq>
+
+    <INSDSeq_locus>GIARRDAA</INSDSeq_locus>
+    <INSDSeq_length>1453</INSDSeq_length>
+    <INSDSeq_strandedness>single</INSDSeq_strandedness>
+    <INSDSeq_moltype>rRNA</INSDSeq_moltype>
+    <INSDSeq_topology>linear</INSDSeq_topology>
+    <INSDSeq_division>INV</INSDSeq_division>
+    <INSDSeq_update-date>05-JUN-1991</INSDSeq_update-date>
+    <INSDSeq_create-date>27-APR-1993</INSDSeq_create-date>
+    <INSDSeq_definition>G.lamblia small subunit ribosomal (16S-like) RNA</INSDSeq_definition>
+    <INSDSeq_primary-accession>M54878</INSDSeq_primary-accession>
+    <INSDSeq_accession-version>M54878.1</INSDSeq_accession-version>
+    <INSDSeq_other-seqids>
+      <INSDSeqid>gb|M54878.1|GIARRDAA</INSDSeqid>
+      <INSDSeqid>gi|174684</INSDSeqid>
+    </INSDSeq_other-seqids>
+    <INSDSeq_secondary-accessions>
+      <INSDSecondary-accn>M19500</INSDSecondary-accn>
+    </INSDSeq_secondary-accessions>
+    <INSDSeq_keywords>
+      <INSDKeyword>16S-like ribosomal RNA</INSDKeyword>
+      <INSDKeyword>ribosomal RNA small subunit</INSDKeyword>
+    </INSDSeq_keywords>
+    <INSDSeq_source>Giardia duodenalis (Giardia lamblia)</INSDSeq_source>
+    <INSDSeq_organism>Giardia duodenalis</INSDSeq_organism>
+    <INSDSeq_taxonomy>Eukaryota; Metamonada; Diplomonadida; Hexamitidae; Giardiinae; Giardia</INSDSeq_taxonomy>
+    <INSDSeq_comment>Original source text: G.lamblia (strain Portland 1) rRNA.</INSDSeq_comment>
+    <INSDSeq_feature-table>
+      <INSDFeature>
+        <INSDFeature_key>source</INSDFeature_key>
+        <INSDFeature_location>1..1453</INSDFeature_location>
+        <INSDFeature_intervals>
+          <INSDInterval>
+            <INSDInterval_from>1</INSDInterval_from>
+            <INSDInterval_to>1453</INSDInterval_to>
+            <INSDInterval_accession>M54878.1</INSDInterval_accession>
+          </INSDInterval>
+        </INSDFeature_intervals>
+        <INSDFeature_quals>
+          <INSDQualifier>
+            <INSDQualifier_name>organism</INSDQualifier_name>
+            <INSDQualifier_value>Giardia duodenalis</INSDQualifier_value>
+          </INSDQualifier>
+          <INSDQualifier>
+            <INSDQualifier_name>mol_type</INSDQualifier_name>
+            <INSDQualifier_value>rRNA</INSDQualifier_value>
+          </INSDQualifier>
+          <INSDQualifier>
+            <INSDQualifier_name>strain</INSDQualifier_name>
+            <INSDQualifier_value>Portland 1</INSDQualifier_value>
+          </INSDQualifier>
+          <INSDQualifier>
+            <INSDQualifier_name>db_xref</INSDQualifier_name>
+            <INSDQualifier_value>taxon:5741</INSDQualifier_value>
+          </INSDQualifier>
+        </INSDFeature_quals>
+      </INSDFeature>
+      <INSDFeature>
+        <INSDFeature_key>rRNA</INSDFeature_key>
+        <INSDFeature_location>1..1453</INSDFeature_location>
+        <INSDFeature_intervals>
+          <INSDInterval>
+            <INSDInterval_from>1</INSDInterval_from>
+            <INSDInterval_to>1453</INSDInterval_to>
+            <INSDInterval_accession>M54878.1</INSDInterval_accession>
+          </INSDInterval>
+        </INSDFeature_intervals>
+        <INSDFeature_quals>
+          <INSDQualifier>
+            <INSDQualifier_name>product</INSDQualifier_name>
+            <INSDQualifier_value>16S-like ribosomal RNA</INSDQualifier_value>
+          </INSDQualifier>
+        </INSDFeature_quals>
+      </INSDFeature>
+    </INSDSeq_feature-table>
+  </INSDSeq>
+
+</INSDSet>

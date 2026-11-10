@@ -21,9 +21,12 @@ Progress = Callable[[str, float], None]
 END_LEN_MAX = 32
 
 
-def end_loss(c: PrimerCandidate, genome_len: int) -> int:
-    """Genome bases left outside the insert if c is the first forward or last reverse primer."""
-    return c.end + 1 if c.strand == "+" else genome_len - c.start
+def end_loss(c: PrimerCandidate, span: tuple[int, int]) -> int:
+    """Span bases left outside the insert if c is the first forward or last reverse primer.
+
+    span is the (first, last) consensus position tiled; the whole genome is (0, length - 1).
+    """
+    return c.end + 1 - span[0] if c.strand == "+" else span[1] + 1 - c.start
 
 
 def loss_limit(params: TilingParams, strand: str) -> int:
@@ -46,14 +49,14 @@ def _gc(seq: str) -> float:
 
 
 def _best_length(
-    cons_seq: str, anchor: int, strand: str, params: TilingParams
+    cons_seq: str, anchor: int, strand: str, params: TilingParams, span: tuple[int, int]
 ) -> PrimerCandidate | None:
     """Best primer whose 3' end sits at anchor (end for '+', start for '-')."""
     len_opt = (params.len_min + params.len_max) // 2
     best: PrimerCandidate | None = None
     for length in range(params.len_min, params.len_max + 1):
         start = anchor - length + 1 if strand == "+" else anchor
-        if start < 0 or start + length > len(cons_seq):
+        if start < span[0] or start + length > span[1] + 1:
             break
         site = cons_seq[start:start + length]
         if site.strip("ACGT"):
@@ -73,18 +76,20 @@ def _best_length(
 
 
 def enumerate_primers(
-    cons_seq: str, params: TilingParams
+    cons_seq: str, params: TilingParams, span: tuple[int, int] | None = None
 ) -> tuple[list[PrimerCandidate], list[PrimerCandidate]]:
     """Forward and reverse primers on the consensus, one per 3' anchor position.
 
-    Within max_start_loss of the genome start, and max_end_loss of its end, the end rules
-    apply (see END_LEN_MAX).
+    Primers lie inside span (default: the whole consensus). Within max_start_loss of the
+    span start, and max_end_loss of its end, the end rules apply (see END_LEN_MAX).
     """
-    n, ends = len(cons_seq), _end_params(params)
-    fwds = [c for e in range(n) if (c := _best_length(
-        cons_seq, e, "+", ends if e + 1 <= params.max_start_loss else params))]
-    revs = [c for s in range(n) if (c := _best_length(
-        cons_seq, s, "-", ends if n - s <= params.max_end_loss else params))]
+    span = span or (0, len(cons_seq) - 1)
+    first, last = span
+    ends = _end_params(params)
+    fwds = [c for e in range(first, last + 1) if (c := _best_length(
+        cons_seq, e, "+", ends if e + 1 - first <= params.max_start_loss else params, span))]
+    revs = [c for s in range(first, last + 1) if (c := _best_length(
+        cons_seq, s, "-", ends if last + 1 - s <= params.max_end_loss else params, span))]
     return fwds, revs
 
 
@@ -148,8 +153,13 @@ def score_primers(
     cons: Consensus,
     params: TilingParams,
     progress: Progress | None = None,
+    span: tuple[int, int] | None = None,
 ) -> list[PrimerCandidate]:
-    """Match every candidate against every sequence; add degenerate bases if allowed."""
+    """Match every candidate against every sequence; add degenerate bases if allowed.
+
+    span (default: the whole consensus) sets where GC % is free for degenerate primers.
+    """
+    span = span or (0, len(cons.seq) - 1)
     full = (1 << len(aln.rows)) - 1
     sp = params.scoring
     out: list[PrimerCandidate] = []
@@ -161,7 +171,7 @@ def score_primers(
         mask = _mask(c.site, cols, aln, side, sp)
         scored = dataclasses.replace(c, cols=cols, mask=mask)
         if params.degenerate and mask != full:
-            at_end = end_loss(c, len(cons.seq)) <= loss_limit(params, c.strand)
+            at_end = end_loss(c, span) <= loss_limit(params, c.strand)
             gc = (0.0, 100.0) if at_end else (params.gc_min, params.gc_max)
             site = degenerate_site(
                 c.site, cols, aln, sp, params.max_degeneracy, side, gc,

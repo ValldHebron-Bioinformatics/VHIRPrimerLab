@@ -78,11 +78,28 @@ so overlapping products never share a tube. It writes:
    at least as many sequences; dimers that cannot be removed this way are listed in
    `report.txt`.
 
+### Tiling chosen spans
+
+To tile only parts of the genome (say, two genes) give each span with `--tile-region` instead of `-n`:
+
+```bash
+vhirprimerlab -i genomes.fasta -o out \
+    --tile-region F:1001-3000 --tile-region SH:4001-4600 --amplicon-len 700
+```
+
+Each span is tiled on its own with amplicons of about `--amplicon-len`, overlapping by at least
+`--overlap`; a span that fits in one amplicon gets one. Amplicons are numbered and pooled across
+the whole scheme and named after their span (`F_1_LEFT`, `F_2_LEFT`, …; `SH_LEFT` for a
+single-amplicon span). `--max-start-loss` and `--max-end-loss` apply at the start and end of every
+span, and primer dimers are checked across the whole scheme.
+
 ### Tiling options
 
 | Option | Default | Description |
 |---|---|---|
 | `-n/--amplicons` | — | number of amplicons |
+| `--tile-region` | — | `[NAME:]START-END`, 1-based reference coordinates; tile only this span, repeatable, one scheme for all spans (replaces `-n`; cannot be combined with `-n`, `--region` or `--regions-file`) |
+| `--amplicon-len` | 400 | target amplicon length with `--tile-region` (bp); each span gets as many amplicons as it needs |
 | `--overlap` | 50 | minimum overlap between neighbouring amplicons (bp, between the primers) |
 | `--max-start-loss` | 50 | most genome bases left outside the first insert (bp, primer included) |
 | `--max-end-loss` | 50 | most genome bases left outside the last insert (bp, primer included) |
@@ -143,6 +160,33 @@ Server limits can be changed with environment variables: `VHIRPRIMERLAB_MAX_SEQS
 `tools/build_wasm.sh` rebuilds the compiled parts in `site/app/engine/` (primer3-py for
 Pyodide, and the MAFFT programs `mafft --auto` runs, for WebAssembly); `tools/build_site.py`
 assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it on every push to master.
+
+## Pick by gene
+
+The web app's "Pick by gene" mode draws an organism's genes over your own reference, so you
+click the genes you want and get primers covering them instead of counting amplicons.
+
+1. Drop your sequences. The genes are placed on whichever sequence you choose as the reference.
+2. Choose the organism: one of the usual targets in the list (the list is
+   `vhirprimerlab/web/static/organisms.json`; edit it to add your own), or type a name or an
+   accession in the box under it. A name such as `dengue virus 2` is searched among NCBI's RefSeq
+   records and the matches are listed with their accession and length: a length near the whole
+   genome is the genome, a short one is a single gene. Something that is plainly an accession
+   (`NC_039199.1`) is loaded directly. Records over 500,000 nt are refused. "Load a GenBank file",
+   the button under the box, takes a record you already have and needs no network at all.
+3. Click the genes on the drawing; drag the handles of a picked span to adjust it. A gene the
+   anchor map cannot place on your reference is greyed and cannot be clicked.
+4. Press Design. Each span is tiled on its own and the whole scheme comes back as usual: the
+   amplicon map, the table, `primers.tsv`, `amplicons.tsv`, `scheme.bed` and `report.txt`. Every
+   span is padded around the gene you clicked, so the gene lands inside the inserts rather than
+   under a primer; where it sits at the very edge of your reference there is no room for that
+   padding, and the list of spans says how many of its bases may fall outside the amplicons.
+   "Cover the whole genome instead", under the list, tiles the whole reference as the design page
+   does.
+
+Your browser asks NCBI for the annotation and keeps it for next time; only the name or accession
+you type is sent, never your sequences, and the server makes no network call. A GenBank file needs
+no network at all, and neither does a list that fails to load.
 
 ## Advanced: target regions
 

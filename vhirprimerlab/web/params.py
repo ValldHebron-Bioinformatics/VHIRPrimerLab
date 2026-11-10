@@ -11,7 +11,7 @@ from vhirprimerlab.io import load_fasta
 from vhirprimerlab.lengths import ungapped_length
 from vhirprimerlab.models import PipelineError
 
-MODES = ("tile", "regions", "check")
+MODES = ("tile", "regions", "check", "genes")
 
 
 @dataclass(frozen=True)
@@ -70,6 +70,19 @@ SETTINGS: dict[str, dict[str, tuple[str, object]]] = {
         "amplicon_min": ("--amplicon-min", int),
         "amplicon_max": ("--amplicon-max", int),
         "allow_degenerate": ("--allow-degenerate", "bool_on"),
+        **_DESIGN,
+    },
+    "genes": {
+        "tile_regions": ("--tile-region", "regions"),
+        "amplicon_len": ("--amplicon-len", int),
+        "overlap": ("--overlap", int),
+        # The page pads each span around the feature the user clicked, and the engine measures
+        # these two from the padded edge, so it sends that padding: without them the default 50
+        # demands a primer inside the padding and the span fails to tile. They are one pair for
+        # the whole scheme, so a span clamped at the reference's edge, with less padding than
+        # this, may lose bases of the feature itself; the page says so in its list of spans.
+        "max_start_loss": ("--max-start-loss", int),
+        "max_end_loss": ("--max-end-loss", int),
         **_DESIGN,
     },
     "check": dict(_SHARED),

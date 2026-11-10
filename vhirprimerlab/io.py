@@ -16,12 +16,14 @@ from vhirprimerlab.models import (
     Alignment,
     CheckReport,
     CheckResult,
+    EdgeAdvice,
     PipelineError,
     Record,
     RegionResult,
     RunReport,
     TilingReport,
     TilingResult,
+    primer_names,
 )
 from vhirprimerlab.ranking import count_reasons
 from vhirprimerlab.structure import DIMER_DG
@@ -360,10 +362,6 @@ TILING_TSV_COLUMNS = [
 ]
 
 
-def _names(index: int) -> tuple[str, str]:
-    return f"VHIRPrimerLab_{index}_LEFT", f"VHIRPrimerLab_{index}_RIGHT"
-
-
 def _span(first_col: int, last_col: int, cmap: CoordMap) -> tuple[int, int] | None:
     """1-based inclusive reference span of alignment columns, or None if off the reference."""
     try:
@@ -377,7 +375,7 @@ def tiling_order(result: TilingResult) -> list[tuple[str, str]]:
     """Both primers of every amplicon, in genome order."""
     out: list[tuple[str, str]] = []
     for a in result.amplicons:
-        left, right = _names(a.index)
+        left, right = primer_names(a.name)
         out += [(left, a.fwd.seq), (right, a.rev.seq)]
     return out
 
@@ -388,7 +386,7 @@ def write_tiling_tsv(result: TilingResult, cmap: CoordMap, path: Path) -> None:
         writer = csv.writer(fh, delimiter="\t", lineterminator="\n")
         writer.writerow(TILING_TSV_COLUMNS)
         for a in result.amplicons:
-            left, right = _names(a.index)
+            left, right = primer_names(a.name)
             span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
             cov = a.coverage
             writer.writerow([
@@ -410,7 +408,7 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
     """ARTIC-style primer scheme: chrom, start, end (0-based half-open), name, pool, strand, seq."""
     lines: list[str] = []
     for a in result.amplicons:
-        for name, primer, strand in zip(_names(a.index), (a.fwd, a.rev), "+-"):
+        for name, primer, strand in zip(primer_names(a.name), (a.fwd, a.rev), "+-"):
             span = _span(primer.cols[0], primer.cols[-1], cmap)
             if span is None:
                 log.warning("Primer %s is not on reference %s; left out of scheme.bed",
@@ -421,22 +419,32 @@ def write_scheme_bed(result: TilingResult, cmap: CoordMap, path: Path) -> None:
     Path(path).write_text("".join(line + "\n" for line in lines))
 
 
+def advice_line(adv: EdgeAdvice) -> str:
+    """One line naming the gain from loosening an edge and the flag to re-run with."""
+    of = adv.span or "the genome"
+    which = "first" if adv.end == "start" else "last"
+    return (f"The {which} amplicon of {of} covers {adv.edge_before:.1f} % of your sequences; "
+            f"giving up {adv.extra_loss} more bases at its {adv.end} would reach "
+            f"{adv.edge_after:.1f} %: add --max-{adv.end}-loss {adv.limit}")
+
+
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
     out = _header_lines(report, "VHIRPrimerLab tiling report")
     out += ["Tiling", "------",
             f"Amplicons: {len(res.amplicons)}",
-            f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "
-            f"±{round(g.tolerance * 100)} %)",
+            (f"Target amplicon length: {report.params.get('amplicon_len')} bp" if res.spanned else
+             f"Target length: {g.target_len} bp (allowed {g.len_min}-{g.len_max}, "
+             f"±{round(g.tolerance * 100)} %)"),
             f"Candidate primers: {res.n_fwd} forward, {res.n_rev} reverse",
-            f"Not covered at the ends: {res.uncovered_ends[0]} bp (start), "
-            f"{res.uncovered_ends[1]} bp (end)", ""]
+            f"{'Not covered at the span edges: at most' if res.spanned else 'Not covered at the ends:'} "
+            f"{res.uncovered_ends[0]} bp (start), {res.uncovered_ends[1]} bp (end)", ""]
     for a in res.amplicons:
         span = _span(a.fwd.cols[0], a.rev.cols[-1], cmap)
         where = f"{span[0]}-{span[1]}  {span[1] - span[0] + 1} bp" if span else "not on reference"
         out.append(f"  {a.index} pool {a.pool}  {where}  {a.coverage.coverage_pct:.1f} %")
-        left, right = _names(a.index)
+        left, right = primer_names(a.name)
         out += [f"    {left}   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}",
                 f"    {right}  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}"]
         if a.below_threshold:
@@ -444,6 +452,10 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]
     out += ["", "Primer dimers", "-------------"]
     out += [f"  {w}" for w in res.dimer_warnings] or ["none"]
+    if res.edge_advice:
+        out += ["", "Edge advice", "-----------",
+                "  The result above is what you asked for; these re-runs would do better:"]
+        out += [f"  {advice_line(adv)}" for adv in res.edge_advice]
     low = [str(a.index) for a in res.amplicons if a.below_threshold]
     out += ["", "Summary", "-------",
             f"Amplicons below {mc:g} % coverage: {', '.join(low)}" if low

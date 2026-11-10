@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tests.synthetic import make_genome_family
-from vhirprimerlab.tiling import geometry, max_amplicons, target_length
+from vhirprimerlab.tiling import amplicons_for, geometry, max_amplicons, target_length
 
 
 def test_make_genome_family_shape() -> None:
@@ -32,3 +32,23 @@ def test_max_amplicons() -> None:
     assert n > 1
     assert geometry(6000, n, 50, 0.20, 25) is not None
     assert geometry(6000, n + 1, 50, 0.20, 25) is None
+
+
+def test_amplicons_for() -> None:
+    assert amplicons_for(400, 400, 50) == 1
+    assert amplicons_for(150, 400, 50) == 1          # shorter than one amplicon
+    assert amplicons_for(750, 400, 50) == 2          # (750 - 50) / 350 = 2
+    assert amplicons_for(751, 400, 50) == 3
+    assert amplicons_for(6018, 400, 50) == 18        # the hMPV L gene
+
+
+def test_geometry_allows_one_short_amplicon() -> None:
+    # 150 bp holds two 25 bp primers and an insert; with n == 1 there is no neighbour,
+    # so the overlap condition must not apply
+    g = geometry(150, 1, 50, 0.20, 25)
+    assert g is not None and g.len_min == 120
+    assert geometry(40, 1, 50, 0.20, 25) is None     # too short for two primers
+
+
+def test_geometry_still_refuses_short_amplicons_with_neighbours() -> None:
+    assert geometry(300, 2, 50, 0.20, 25) is None

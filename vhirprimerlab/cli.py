@@ -9,7 +9,7 @@ import os
 import shlex
 import statistics
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, NoReturn
 
@@ -22,6 +22,7 @@ from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.degenerate import degenerate_pair, tm_range
 from vhirprimerlab.design import run_primer3
 from vhirprimerlab.io import (
+    advice_line,
     alignment_from_records,
     load_fasta,
     region_order,
@@ -58,7 +59,7 @@ from vhirprimerlab.models import (
 from vhirprimerlab.ranking import failure_summary, rank
 from vhirprimerlab.regions import resolve_regions
 from vhirprimerlab.scoring import score_pair
-from vhirprimerlab.tiling import tile
+from vhirprimerlab.tiling import tile, tile_spans
 
 log = logging.getLogger("vhirprimerlab")
 
@@ -100,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--reference-id", help="reference for coordinates (default: first sequence)")
     p.add_argument("-n", "--amplicons", type=int,
                    help="tile the whole genome with this many overlapping amplicons (2 pools)")
+    p.add_argument("--tile-region", action="append", metavar="[NAME:]START-END",
+                   help="tile this span of the reference (1-based, inclusive) instead of the "
+                        "whole genome; repeatable, all spans go into one scheme")
+    p.add_argument("--amplicon-len", type=int, default=400,
+                   help="tiling with --tile-region: target amplicon length (bp)")
     p.add_argument("--overlap", type=int, default=50,
                    help="tiling: minimum overlap between neighbouring amplicons (bp)")
     p.add_argument("--max-start-loss", type=int, default=50,
@@ -264,10 +270,23 @@ class _Aligned:
     cmap: CoordMap
 
 
+def check_span(region: Region, ref_length: int) -> None:
+    """Refuse a --tile-region span that is backwards or not on the reference."""
+    if region.start < 1 or region.end > ref_length:
+        raise PipelineError(
+            f"Region '{region.name}' ({region.start}-{region.end}) is outside the reference "
+            f"(1-{ref_length})"
+        )
+    if region.start >= region.end:
+        raise PipelineError(f"Region '{region.name}': start must be smaller than end")
+
+
 def check_tiling_params(a: argparse.Namespace) -> None:
     problems = _design_problems(a)
-    if a.amplicons < 1:
+    if a.amplicons is not None and a.amplicons < 1:
         problems.append("-n must be >= 1")
+    if a.tile_region and a.amplicon_len <= a.overlap:
+        problems.append("--amplicon-len must be greater than --overlap")
     if a.overlap < 0:
         problems.append("--overlap must be >= 0")
     if a.max_start_loss < 0:
@@ -305,8 +324,10 @@ def make_progress(path: Path | None) -> Callable[[str, float], None]:
 
 
 def _report_params(a: argparse.Namespace) -> dict[str, object]:
+    # `amplicons` is -n, which tiling chosen spans derives per span: it is None there, and
+    # "amplicons: None" in the report would read as a setting rather than as its absence.
     return {k: (str(v) if isinstance(v, Path) else v)
-            for k, v in vars(a).items() if k != "progress_file"}
+            for k, v in vars(a).items() if k != "progress_file" and (k, v) != ("amplicons", None)}
 
 
 def _load_inputs(a: argparse.Namespace) -> _Inputs:
@@ -392,18 +413,25 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
     check_tiling_params(a)
     progress = make_progress(a.progress_file)
     inp = _load_inputs(a)
+    spans = resolve_regions(a.tile_region, None, inp.ref_len) if a.tile_region else None
+    for span in spans or []:
+        check_span(span, inp.ref_len)
     progress("aligning", 0.05)
     al = _align_inputs(a, inp)
     params = TilingParams(
-        n_amplicons=a.amplicons, overlap=a.overlap, tm_min=a.tm_min, tm_opt=a.tm_opt,
+        n_amplicons=a.amplicons if a.amplicons is not None else 1,  # spans work it out
+        overlap=a.overlap, tm_min=a.tm_min, tm_opt=a.tm_opt,
         tm_max=a.tm_max, max_tm_diff=a.max_tm_diff, len_min=a.primer_len_min,
         len_max=a.primer_len_max, gc_min=a.gc_min, gc_max=a.gc_max,
         max_mismatches=a.max_mismatches, window=a.three_prime_window,
         degenerate=not a.no_degenerate, max_degeneracy=a.max_degeneracy,
         min_coverage=a.min_coverage, max_start_loss=a.max_start_loss,
-        max_end_loss=a.max_end_loss,
+        max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len,
     )
-    result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
+    if spans:
+        result = tile_spans(al.aln, al.cons, al.stats, al.cmap, params, spans, progress)
+    else:
+        result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
     progress("writing", 0.95)
     write_tiling_tsv(result, al.cmap, a.outdir / "amplicons.tsv")
     write_order_tsv(tiling_order(result), a.outdir / "primers.tsv")
@@ -413,6 +441,13 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         log.warning("Amplicons below --min-coverage: %s", ", ".join(low))
     else:
         log.info("All %d amplicons meet %g%% coverage", len(result.amplicons), a.min_coverage)
+    for adv in result.edge_advice:
+        log.warning("%s", advice_line(adv))
+    advice_file = a.outdir / "advice.json"  # machine-readable, for a page that offers a re-run
+    if result.edge_advice:
+        advice_file.write_text(json.dumps([asdict(adv) for adv in result.edge_advice], indent=2) + "\n")
+    else:
+        advice_file.unlink(missing_ok=True)  # a reused outdir must not keep an old run's advice
     report = TilingReport(
         command=command, params=_report_params(a), n_input=len(inp.records),
         median_len=float(statistics.median(inp.lengths)), min_len=min(inp.lengths),
@@ -507,7 +542,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     return EXIT_BELOW_THRESHOLD if low else EXIT_OK
 
 
-TILING_CONFLICTS = (("region", "--region"), ("regions_file", "--regions-file"),
+TILING_CONFLICTS = (("tile_region", "--tile-region"), ("region", "--region"), ("regions_file", "--regions-file"),
                     ("amplicon_min", "--amplicon-min"), ("amplicon_max", "--amplicon-max"),
                     ("allow_degenerate", "--allow-degenerate"))
 
@@ -519,20 +554,23 @@ def parse_args(argv: list[str]) -> tuple[argparse.Namespace, Callable[..., int],
         return args, run_check, "vhirprimerlab check " + shlex.join(argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.amplicons is not None:
-        clash = [flag for name, flag in TILING_CONFLICTS if getattr(args, name)]
+    if args.tile_region or args.amplicons is not None:
+        lead, lead_flag = (("tile_region", "--tile-region") if args.tile_region
+                           else ("amplicons", "-n"))
+        clash = [flag for name, flag in (("amplicons", "-n"), *TILING_CONFLICTS)
+                 if name != lead and getattr(args, name)]
         if clash:
-            parser.error(f"-n cannot be combined with {', '.join(clash)}")
+            parser.error(f"{lead_flag} cannot be combined with {', '.join(clash)}")
         runner: Callable[..., int] = run_tiling
     elif args.no_degenerate:
-        parser.error("--no-degenerate only applies to tiling (-n)")
+        parser.error("--no-degenerate only applies to tiling (-n or --tile-region)")
     elif args.amplicon_min is None or args.amplicon_max is None:
         parser.error("use -n N to tile the whole genome with N amplicons, or --amplicon-min/"
                      "--amplicon-max (and optionally --region) for region design")
     else:
         runner = run
     if args.max_degeneracy is None:
-        args.max_degeneracy = 4 if args.amplicons is not None else 8
+        args.max_degeneracy = 4 if runner is run_tiling else 8
     return args, runner, "vhirprimerlab " + shlex.join(argv)
 
 
@@ -540,7 +578,7 @@ def validate_args(a: argparse.Namespace) -> None:
     """The parameter checks the chosen mode runs first (raises PipelineError)."""
     if hasattr(a, "primers"):
         check_check_params(a)
-    elif a.amplicons is not None:
+    elif a.amplicons is not None or a.tile_region:
         check_tiling_params(a)
     else:
         check_params(a)

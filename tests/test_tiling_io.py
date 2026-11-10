@@ -12,6 +12,7 @@ from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import (
     TILING_TSV_COLUMNS,
     alignment_from_records,
+    tiling_order,
     write_scheme_bed,
     write_tiling_report,
     write_tiling_tsv,
@@ -86,6 +87,20 @@ def test_report_all_pass(run, tmp_path: Path) -> None:
         assert needle in text
 
 
+def test_report_wording_whole_genome_and_spanned(run, tmp_path: Path) -> None:
+    result, cmap, records = run
+    write_tiling_report(_report(result, records), cmap, tmp_path / "a.txt")
+    text = (tmp_path / "a.txt").read_text()
+    assert "Not covered at the ends: " in text and "span edges" not in text
+    assert "Target length: " in text
+    rep = _report(dataclasses.replace(result, spanned=True), records)
+    rep.params["amplicon_len"] = 700
+    write_tiling_report(rep, cmap, tmp_path / "b.txt")
+    text = (tmp_path / "b.txt").read_text()
+    assert "Not covered at the span edges: at most " in text
+    assert "Target amplicon length: 700 bp" in text and "Target length: " not in text
+
+
 def test_report_below_threshold(run, tmp_path: Path) -> None:
     result, cmap, records = run
     low = PairCoverage(covered=[f"g{i:02d}" for i in range(1, 7)],
@@ -132,3 +147,22 @@ def test_report_lists_every_primer(run, tmp_path: Path) -> None:
     for a in result.amplicons:
         assert f"VHIRPrimerLab_{a.index}_LEFT   {primer_summary(a.fwd.seq, a.fwd.tm, a.fwd.tm_range)}" in text
         assert f"VHIRPrimerLab_{a.index}_RIGHT  {primer_summary(a.rev.seq, a.rev.tm, a.rev.tm_range)}" in text
+
+
+def test_whole_genome_names_are_unchanged(run) -> None:
+    result, _, _ = run
+    assert [a.name for a in result.amplicons[:2]] == ["VHIRPrimerLab_1", "VHIRPrimerLab_2"]
+    assert tiling_order(result)[:2] == [
+        ("VHIRPrimerLab_1_LEFT", result.amplicons[0].fwd.seq),
+        ("VHIRPrimerLab_1_RIGHT", result.amplicons[0].rev.seq),
+    ]
+
+
+def test_the_order_sheet_follows_the_amplicon_name(run) -> None:
+    result, _, _ = run
+    renamed = dataclasses.replace(
+        result,
+        amplicons=[dataclasses.replace(result.amplicons[0], name="F"), *result.amplicons[1:]],
+    )
+    assert tiling_order(renamed)[0][0] == "F_LEFT"
+    assert tiling_order(result)[0][0] == "VHIRPrimerLab_1_LEFT"

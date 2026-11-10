@@ -1,0 +1,160 @@
+/* Turn what the user clicks into the spans they want primers for. This is pure logic: the page
+   draws and drags, and hands the results here. It touches no DOM, storage or network. */
+
+// Padding each side of a clicked feature. The anchor map is accurate to about 13 nt over 13 kb,
+// and the engine may leave up to --max-end-loss bases outside the insert at a span edge, so the
+// feature itself must end up inside the amplicons rather than under a primer.
+export const PAD = 50;
+// The engine's own --max-start-loss / --max-end-loss default: the span bases it may leave outside
+// the inserts at an edge, the primer there included. Each block carries this much padding on top
+// of PAD so that the loss lands on padding rather than on the feature, and it is also the floor of
+// what a run asks for, because a limit shorter than a primer can never be met. One definition: the
+// page imports it from here.
+export const END_LOSS = 50;
+const SNAP_EDGE = 10;   // bp: a drag this close to a feature edge snaps to the edge
+
+// The span a block must have so one amplicon holds two primers and a base of insert.
+// Mirrors the engine's single-amplicon rule after its length tolerance.
+export function smallestSpan(primerLenMax = 25, tolerance = 0.20) {
+  return Math.ceil((2 * primerLenMax + 1) / (1 - tolerance));
+}
+
+// `convert` maps a position on the annotation's record to the user's reference. Padding is
+// clamped to the reference. A block shorter than `minSpan` grows about its centre, and a side
+// that hits the reference's edge hands its share of the growth to the other side.
+export function blockFromFeature(feature, { convert, pad = PAD, endLoss = END_LOSS, minSpan = 0, limit }) {
+  const a = convert(feature.start);
+  const b = convert(feature.end);
+  const margin = pad + endLoss;
+  let start = Math.max(1, Math.min(a, b) - margin);
+  let end = Math.min(limit, Math.max(a, b) + margin);
+  const need = minSpan - (end - start + 1);
+  if (need > 0) {
+    const roomLeft = start - 1;
+    const roomRight = limit - end;
+    let growRight = Math.min(roomRight, Math.floor(need / 2));
+    let growLeft = Math.min(roomLeft, need - growRight);
+    growRight = Math.min(roomRight, need - growLeft);
+    start -= growLeft;
+    end += growRight;
+  }
+  // Where the feature itself landed, kept so the padding the block really achieved can be read
+  // back later: clamping at a reference edge takes padding away, and so does dragging a handle.
+  return { name: feature.name, start, end, feat: { start: Math.min(a, b), end: Math.max(a, b) } };
+}
+
+// The padding a block achieved at each end: the bases between the span's edge and the feature the
+// user clicked. Measured from the block as it stands, so a dragged handle is accounted for, and
+// negative where a drag went inside the feature. A block with no feature behind it (the
+// whole-genome shortcut) has no padding: its span edge is the reference's own.
+const featOf = (b) => b.feat || { start: b.start, end: b.end };
+
+export function achievedPad(block) {
+  const feat = featOf(block);
+  return { start: feat.start - block.start, end: block.end - feat.end };
+}
+
+// The --max-start-loss / --max-end-loss every run asks for, at both ends of every span. One pair
+// of flags covers the whole scheme -- tile_spans has no per-span limits -- so it has to be the
+// full padding. Lowering it to the least padding any block achieved held every span to the worst
+// one: picking hMPV's N gene, which is clamped at base 1 and has no padding there, dropped the
+// limit to 50 and broke the L gene, which needs 51 and tiles fine on its own. Picking a gene must
+// not break another gene. The cost of the full padding is instead disclosed, by lossNotes below.
+export const PADDING = PAD + END_LOSS;
+
+// Bases of the feature behind each block that the engine may leave outside the amplicons: what is
+// lost is the limit beyond the padding the block achieved. A block with its full padding is safe
+// and never appears here; one clamped at the reference's edge, or dragged into its own feature,
+// can lose up to the whole padding. The results panel never mentions this, so the block list must.
+export function lossNotes(blocks, limits = { start: PADDING, end: PADDING }) {
+  const notes = [];
+  for (const b of blocks) {
+    if (!b.feat) continue;   // the whole-genome shortcut covers no feature in particular
+    const got = achievedPad(b);
+    const start = Math.max(0, limits.start - got.start);
+    const end = Math.max(0, limits.end - got.end);
+    if (start || end) notes.push({ name: b.name, start, end });
+  }
+  return notes;
+}
+
+// Blocks that touch or overlap become one, named by joining the parts with an underscore: the
+// name ends up in primer names (A_B_1_LEFT) and scheme.bed, where '+' is awkward.
+export function mergeBlocks(blocks) {
+  const sorted = [...blocks].sort((x, y) => x.start - y.start);
+  const merged = [];
+  for (const next of sorted) {
+    const current = merged[merged.length - 1];
+    if (current && next.start <= current.end + 1) {
+      // The merged span has one pair of edges, so its padding is the outermost blocks': the first
+      // block's at the start (they are sorted) and, at the end, that of whichever reaches furthest.
+      if (next.end > current.end) {
+        current.feat = { start: featOf(current).start, end: featOf(next).end };
+        current.end = next.end;
+      }
+      current.name = `${current.name}_${next.name}`;
+    } else {
+      merged.push({ ...next });
+    }
+  }
+  return merged;
+}
+
+// target_length() in vhirprimerlab/tiling.py. Python's round() is half to even, so a target that
+// lands exactly on .5 reads the same here as in the engine and a boundary case cannot disagree.
+export function targetLength(span, n, overlap) {
+  const exact = (span + (n - 1) * overlap) / n;
+  const near = Math.round(exact);
+  return Math.abs(exact % 1) === 0.5 && near % 2 !== 0 ? near - 1 : near;
+}
+
+// geometry() in vhirprimerlab/tiling.py: whether n amplicons over this span are long enough.
+// Neighbours may overlap by at most half the shortest amplicon, and that half must still hold two
+// primers and the required insert overlap; a single amplicon has no neighbour, so it only has to
+// hold two primers and one base of insert.
+function fits(span, n, overlap, primerLenMax, tolerance = 0.20) {
+  const lenMin = Math.floor(targetLength(span, n, overlap) * (1 - tolerance));
+  if (n === 1) return lenMin >= 2 * primerLenMax + 1;
+  return Math.floor((lenMin - 1) / 2) >= overlap + 2 * primerLenMax;
+}
+
+// max_amplicons() in vhirprimerlab/tiling.py: the most amplicons whose geometry still works at the
+// default tolerance, or 0 when not even one does.
+export function maxAmplicons(span, overlap, primerLenMax = 25) {
+  let best = 0;
+  for (let n = 1; n <= span; n += 1) {
+    if (!fits(span, n, overlap, primerLenMax)) break;
+    best = n;
+  }
+  return best;
+}
+
+// The shortest target amplicon length that can still tile this block at this overlap, or 0 when
+// none can. In span mode the engine derives N from the amplicon length, and refuses amplicons too
+// short to hold two primers and the overlap by naming an N the user never chose and never saw:
+// this is the number to tell them instead. Fewer amplicons are longer, so the most the geometry
+// allows is the fewest the span can be cut into, and this length asks for exactly that many.
+export function minAmpliconLen(block, overlap, primerLenMax = 25) {
+  const span = block.end - block.start + 1;
+  const most = maxAmplicons(span, overlap, primerLenMax);
+  return most ? overlap + Math.max(1, Math.ceil((span - overlap) / most)) : 0;
+}
+
+// Same formula as amplicons_for() in vhirprimerlab/tiling.py, which is the other copy: keep
+// them in step. The contract is the ampliconCount test in tests/browser/blocks.test.mjs.
+export function ampliconCount(block, ampliconLen, overlap) {
+  if (ampliconLen <= overlap) throw new Error('ampliconLen must be larger than overlap');
+  const span = block.end - block.start + 1;
+  return Math.max(1, Math.ceil((span - overlap) / (ampliconLen - overlap)));
+}
+
+// A drag snaps to the nearest feature edge within reach, and otherwise to the grid. It does not
+// clamp, so the caller must keep the result inside the reference.
+export function snapPosition(pos, edges, grid = 10) {
+  let best;
+  for (const e of edges) {
+    const d = Math.abs(pos - e);
+    if (d <= SNAP_EDGE && (best === undefined || d < Math.abs(pos - best))) best = e;
+  }
+  return best !== undefined ? best : Math.round(pos / grid) * grid;
+}

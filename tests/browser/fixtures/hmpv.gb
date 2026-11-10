@@ -1,0 +1,92 @@
+LOCUS       NC_039199              13350 bp    RNA     linear   VRL 25-AUG-2018
+DEFINITION  Human metapneumovirus isolate 00-1, complete genome.
+ACCESSION   NC_039199
+VERSION     NC_039199.1
+DBLINK      BioProject: PRJNA485481
+KEYWORDS    RefSeq.
+SOURCE      human metapneumovirus (HMPV)
+  ORGANISM  human metapneumovirus
+            Viruses; Riboviria; Orthornavirae; Negarnaviricota;
+            Haploviricotina; Monjiviricetes; Mononegavirales; Pneumoviridae;
+            Metapneumovirus; Metapneumovirus hominis.
+FEATURES             Location/Qualifiers
+     source          1..13350
+                     /organism="human metapneumovirus"
+                     /mol_type="genomic RNA"
+                     /isolate="00-1"
+                     /db_xref="taxon:162145"
+     gene            40..1224
+                     /gene="N"
+                     /locus_tag="D1Y22_gp1"
+                     /db_xref="GeneID:37626968"
+     CDS             40..1224
+                     /gene="N"
+                     /locus_tag="D1Y22_gp1"
+                     /codon_start=1
+                     /product="nucleoprotein"
+                     /protein_id="YP_009513265.1"
+                     /db_xref="GeneID:37626968"
+                     /translation="MSLQGIHLSDLSYKHAILKESQYTIKRDVGTTTAVTPSSLQQEI
+                     TLLCGEILYAKHADYKYAAEIGIQYISTALGSERVQQILRNSGSEVQVVLTRTYSLGK
+                     IKNNKGEDLQMLDIHGVEKSWVEEIDKEARKTMATLLKESSGNIPQNQRPSAPDTPII
+                     LLCVGALIFTKLASTIEVGLETTVRRANRVLSDALKRYPRMDIPKIARSFYDLFEQKV
+                     YHRSLFIEYGKALGSSSTGSKAESLFVNIFMQAYGAGQTMLRWGVIARSSNNIMLGHV
+                     SVQAELKQVTEVYDLVREMGPESGLLHLRQSPKAGLLSLANCPNFASVVLGNASGLGI
+                     IGMYRGRVPNTELFSAAESYAKSLKESNKINFSSLGLTDEEKEAAEHFLNVSDDSQND
+                     YE"
+     gene            1248..2132
+                     /gene="P"
+                     /locus_tag="D1Y22_gp2"
+                     /db_xref="GeneID:37626964"
+     CDS             1248..2132
+                     /gene="P"
+                     /locus_tag="D1Y22_gp2"
+                     /codon_start=1
+                     /product="phosphoprotein"
+                     /protein_id="YP_009513266.1"
+                     /db_xref="GeneID:37626964"
+                     /translation="MSFPEGKDILFMGNEAAKLAEAFQKSLRKPGHKRSQSIIGEKVN
+                     TVSETLELPTISRPAKPTIPSEPKLAWTDKGGATKTEIKQAIKVMDPIEEEESTEKKV
+                     LPSSDGKTPAEKKLKPSTNTKKKVSFTPNEPGKYTKLEKDALDLLSDNEEEDAESSIL
+                     TFEERDTSSLSIEARLESIEEKLSMILGLLRTLNIATAGPTAARDGIRDAMIGVREEL
+                     IADIIKEAKGKAAEMMEEEMSQRSKIGNGSVKLTEKAKELNKIVEDESTSGESEEEEE
+                     PKDTQDNSQEDDIYQLIM"
+     gene            2165..2929
+                     /gene="M"
+                     /locus_tag="D1Y22_gp3"
+                     /db_xref="GeneID:37626965"
+     CDS             2165..2929
+                     /gene="M"
+                     /locus_tag="D1Y22_gp3"
+                     /codon_start=1
+                     /product="matrix protein"
+                     /protein_id="YP_009513267.1"
+                     /db_xref="GeneID:37626965"
+                     /translation="MESYLVDTYQGIPYTAAVQVDLIEKDLLPASLTIWFPLFQANTP
+                     PAVLLDQLKTLTITTLYAASQNGPILKVNASAQGAAMSVLPKKFEVNATVALDEYSKL
+                     EFDKLTVCEVKTVYLTTMKPYGMVSKFVSSAKSVGKKTHDLIALCDFMDLEKNTPVTI
+                     PAFIKSVSIKESESATVEAAISSEADQALTQAKIAPYAGLIMIMTMNNPKGIFKKLGA
+                     GTQVIVELGAYVQAESISKICKTWSHQGTRYVLKSR"
+     gene            3052..4671
+                     /gene="F"
+                     /locus_tag="D1Y22_gp4"
+                     /db_xref="GeneID:37626966"
+     CDS             3052..4671
+                     /gene="F"
+                     /locus_tag="D1Y22_gp4"
+                     /codon_start=1
+                     /product="fusion protein"
+                     /protein_id="YP_009513268.1"
+                     /db_xref="GeneID:37626966"
+                     /translation="MSWKVVIIFSLLITPQHGLKESYLEESCSTITEGYLSVLRTGWY
+                     TNVFTLEVGDVENLTCADGPSLIKTELDLTKSALRELRTVSADQLAREEQIENPRQSR
+                     FVLGAIALGVATAAAVTAGVAIAKTIRLESEVTAIKNALKKTNEAVSTLGNGVRVLAT
+                     AVRELKDFVSKNLTRAINKNKCDIADLKMAVSFSQFNRRFLNVVRQFSDNAGITPAIS
+                     LDLMTDAELARAVSNMPTSAGQIKLMLENRAMVRRKGFGFLIGVYGSSVIYMVQLPIF
+                     GVIDTPCWIVKAAPSCSGKKGNYACLLREDQGWYCQNAGSTVYYPNEKDCETRGDHVF
+                     CDTAAGINVAEQSKECNINISTTNYPCKVSTGRHPISMVALSPLGALVACYKGVSCSI
+                     GSNRVGIIKQLNKGCSYITNQDADTVTIDNTVYQLSKVEGEQHVIKGRPVSSSFDPVK
+                     FPEDQFNVALDQVFESIENSQALVDQSNRILSSAEKGNTGFIIVIILIAVLGSTMILV
+                     SVFIIIKKTKKPTGAPPELSGVTNNGFIPHN"
+ORIGIN
+//

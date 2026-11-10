@@ -40,7 +40,7 @@ def test_enumerate_respects_limits(family, raw) -> None:
     n = len(family[2].seq)
     for c in fwds + revs:
         assert 57 <= c.tm <= 63
-        if end_loss(c, n) <= 50:  # genome ends: longer primers, any GC
+        if end_loss(c, (0, n - 1)) <= 50:  # genome ends: longer primers, any GC
             assert 18 <= c.length <= END_LEN_MAX
         else:
             assert 18 <= c.length <= 25 and 40 <= c.gc <= 60
@@ -133,9 +133,18 @@ def test_at_rich_genome_ends_still_get_primers() -> None:
     middle = "".join("ACGT"[(i * 7 + i // 3) % 4] for i in range(400))
     seq = reverse_complement(at) + middle + at
     fwds, revs = enumerate_primers(seq, PARAMS)
-    first = [f for f in fwds if end_loss(f, len(seq)) <= 50]
-    last = [r for r in revs if end_loss(r, len(seq)) <= 50]
+    first = [f for f in fwds if end_loss(f, (0, len(seq) - 1)) <= 50]
+    last = [r for r in revs if end_loss(r, (0, len(seq) - 1)) <= 50]
     assert first and last
     for c in first + last:
         assert 57 <= c.tm <= 63 and c.length <= END_LEN_MAX
     assert any(c.gc < 40 for c in last)
+
+
+def test_end_rules_follow_the_span(family) -> None:
+    aln, stats, cons = family
+    fwds, revs = enumerate_primers(cons.seq, PARAMS, span=(1000, 2999))
+    assert all(1000 <= c.start and c.end <= 2999 for c in fwds + revs)
+    # inside the span's first 50 bases the end rules apply: longer primers, any GC
+    near = [c for c in fwds if end_loss(c, (1000, 2999)) <= 50]
+    assert near and any(c.length > 25 or c.gc < 40 for c in near)
