@@ -1,5 +1,6 @@
 /* VHIRPrimerLab web app: read sequences in the browser, start a job, follow it, draw the result. */
 import { buildAnchorMap } from './anchors.js';
+import { findBestMatch } from './bestmatch.js';
 import { fetchAnnotation, ncbiMessage, parseGenbank, searchOrganisms } from './annotation.js';
 import {
   END_LOSS, PAD, PADDING, ampliconCount, blockFromFeature, lossNotes, maxAmplicons, mergeBlocks,
@@ -858,12 +859,15 @@ import {
 
   // The records asked for most often, from organisms.json; any other record is found by name or
   // accession in the box below them. Without the list the box and a GenBank file still work.
+  let catalogue = [];   // the accessions in the list, which the best-match button also scores
+
   async function loadCatalogue() {
     const select = $('organism');
     try {
       const response = await fetch('organisms.json');
       if (!response.ok) throw new Error(`answered ${response.status}`);
       const list = await response.json();
+      catalogue = list.map((o) => o.accession);
       list.forEach((o) => select.add(new Option(
         `${o.label} — ${o.accession}${o.note ? ` · ${o.note}` : ''}`, o.accession)));
     } catch {
@@ -948,6 +952,69 @@ import {
     }
   }
 
+  // Scores the catalogue and, when a name or accession is typed, the NCBI hits for it, against the
+  // user's reference, and loads the record whose genes sit on it best. Only that typed text and
+  // accessions leave the computer, as with the search beside it.
+  async function pickBestMatch() {
+    const g = state.genome;
+    if (!state.seqs) {
+      genomeError('Add your sequences first: the best match is the record that fits them.');
+      return;
+    }
+    const bases = referenceBases();
+    if (!bases) return;
+    genomeError('');
+    clearHits();
+    const token = {};
+    g.pending = token;
+    const typed = $('accession').value.trim();
+    const button = $('best-match');
+    button.disabled = true;
+    const note = (text) => { $('org-hits-note').textContent = text; $('org-hits-note').hidden = !text; };
+    try {
+      const candidates = [...catalogue];
+      let searchFailed = false;
+      if (typed) {
+        if (looksLikeAccession(typed)) {
+          candidates.push(typed);
+        } else {
+          note(`Searching NCBI for "${typed}"…`);
+          try {
+            (await searchOrganisms(typed)).forEach((hit) => candidates.push(hit.accession));
+          } catch { searchFailed = true; }
+        }
+      }
+      note(`Comparing your sequences with ${candidates.length} reference record`
+        + `${candidates.length === 1 ? '' : 's'}…`);
+      const result = await findBestMatch(candidates, bases, { fetchAnnotation, buildAnchorMap });
+      if (g.pending !== token) return;   // the user picked something else meanwhile
+      const missed = result.failed.length + (searchFailed ? 1 : 0);
+      const caveat = missed
+        ? ` ${missed === 1 && searchFailed ? 'The NCBI name search did not answer'
+          : `${result.failed.length} record${result.failed.length === 1 ? '' : 's'} could not be fetched`}`
+          + ', so the best of the rest was chosen.'
+        : '';
+      if (!result.best) {
+        note('');
+        genomeError('No reference record shares enough exact sequence with yours to place its '
+          + `genes.${caveat} Search by the organism’s name, give an accession, or load a GenBank file.`);
+        return;
+      }
+      const { accession, annotation, map } = result.best;
+      const inList = catalogue.some((a) => a.toUpperCase() === accession.toUpperCase());
+      $('organism').value = inList ? accession : '';
+      $('accession').value = inList ? '' : accession;
+      syncFindButton();
+      useAnnotation(annotation);
+      if (g.map) {
+        note(`Best match: ${annotation.organism || accession} (${accession}). `
+          + `${Math.round(map.covered * 100)} % of that record is shared with your reference.${caveat}`);
+      }
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   const syncFindButton = () => {
     $('accession-load').textContent = looksLikeAccession($('accession').value) ? 'Load' : 'Search';
   };
@@ -959,6 +1026,7 @@ import {
     loadAccession(e.target.value);
   });
   $('accession-load').addEventListener('click', findOrganism);
+  $('best-match').addEventListener('click', pickBestMatch);
   $('accession').addEventListener('input', syncFindButton);
   $('accession').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); findOrganism(); }

@@ -71,13 +71,16 @@
             <input type="text" id="accession" autocomplete="off" spellcheck="false" placeholder="dengue virus, or NC_039199.1" aria-label="Organism name or NCBI accession">
             <button type="button" class="btn btn-quiet" id="accession-load">Search</button>
           </div>
+          <div class="drop-actions">
+            <button type="button" class="btn btn-quiet" id="best-match">Find the best match</button>
+          </div>
           <p class="help" id="org-hits-note" role="status" hidden></p>
           <ul class="org-hits" id="org-hits" hidden></ul>
           <div class="drop-actions">
             <label class="btn btn-quiet" for="genbank">Load a GenBank file</label>
             <input class="sr-only" type="file" id="genbank" accept=".gb,.gbk,.gbff,.genbank,.txt,text/plain">
           </div>
-          <p class="help" id="organism-help">Your browser asks NCBI for the annotation and keeps it for next time. Only the name or accession you type leaves your computer; your sequences never do. A GenBank file needs no network at all.</p>
+          <p class="help" id="organism-help">Your browser asks NCBI for the annotation and keeps it for next time. Only the name or accession you type leaves your computer; your sequences never do. A GenBank file needs no network at all. “Find the best match” compares your sequences with the listed organisms, plus any name or accession typed above; nothing more leaves your computer.</p>
           <p class="error" id="organism-error" role="alert" hidden></p>
         </fieldset>
 
