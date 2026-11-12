@@ -306,7 +306,9 @@ export async function fetchRecordLength(accession, { fetch = globalThis.fetch, w
   } catch { return null; }
 }
 
-// Reference records whose name matches, for the user to choose from. Unlike fetchRecordLength this
+// Viral reference records whose name matches, for the user to choose from. The viruses filter is
+// needed: without it the top hits for a virus name are human, mouse and rat genes, and the
+// virus's own genome is not among them. Unlike fetchRecordLength this
 // throws when NCBI cannot answer, so "the search failed" is never shown as "nothing was found".
 // Records over the cap are left out: they could not be loaded anyway.
 export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = sleep } = {}) {
@@ -317,7 +319,7 @@ export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = 
     if (!response.ok) throw httpError(response.status);
     return response.json();
   };
-  const term = encodeURIComponent(`${name} AND srcdb_refseq[prop]`);
+  const term = encodeURIComponent(`${name} AND srcdb_refseq[prop] AND viruses[filter]`);
   const found = await getJson(`${EUTILS}/esearch.fcgi?db=nuccore&retmode=json&retmax=10&term=${term}`);
   const ids = found?.esearchresult?.idlist ?? [];
   if (!ids.length) return [];

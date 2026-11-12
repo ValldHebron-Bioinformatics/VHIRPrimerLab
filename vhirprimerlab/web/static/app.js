@@ -901,7 +901,7 @@ import {
     clearHits(hits.length
       ? `${hits.length} reference record${hits.length === 1 ? '' : 's'} for "${query}". `
         + 'A length near the whole genome is the genome; a short one is a single gene.'
-      : `NCBI has no reference record for "${query}". Check the spelling, try the species name, `
+      : `NCBI has no viral reference record for "${query}". Check the spelling, try the species name, `
         + 'or paste an accession.');
     for (const hit of hits) {
       const li = document.createElement('li');

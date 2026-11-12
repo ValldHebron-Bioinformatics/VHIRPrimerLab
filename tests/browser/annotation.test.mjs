@@ -367,7 +367,7 @@ test('a name search returns each record with its organism, accession, title and 
   ]);
 });
 
-test('the search asks esearch for RefSeq records matching the name, then esummary for the ids', async () => {
+test('the search asks esearch for viral RefSeq records matching the name, then esummary for the ids', async () => {
   const seen = [];
   await searchOrganisms('dengue virus 2', {
     fetch: searchFetch(['11', '22'], [summary('11', 'NC_001474.2', 't', 10_723), summary('22', 'NC_1.1', 't', 5)], seen),
@@ -376,7 +376,7 @@ test('the search asks esearch for RefSeq records matching the name, then esummar
   assert.match(seen[0], /esearch\.fcgi\?db=nuccore/);
   assert.match(seen[0], /retmode=json/);
   assert.match(seen[0], /retmax=10/);
-  assert.ok(seen[0].includes(encodeURIComponent('dengue virus 2 AND srcdb_refseq[prop]')));
+  assert.ok(seen[0].includes(encodeURIComponent('dengue virus 2 AND srcdb_refseq[prop] AND viruses[filter]')));
   assert.match(seen[1], /esummary\.fcgi\?db=nuccore/);
   assert.match(seen[1], /id=11,22(&|$)/);
 });
