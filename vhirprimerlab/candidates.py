@@ -86,10 +86,21 @@ def enumerate_primers(
     span = span or (0, len(cons_seq) - 1)
     first, last = span
     ends = _end_params(params)
-    fwds = [c for e in range(first, last + 1) if (c := _best_length(
-        cons_seq, e, "+", ends if e + 1 - first <= params.max_start_loss else params, span))]
-    revs = [c for s in range(first, last + 1) if (c := _best_length(
-        cons_seq, s, "-", ends if last + 1 - s <= params.max_end_loss else params, span))]
+
+    def best(anchor: int, strand: str, near_end: bool) -> PrimerCandidate | None:
+        # Near an end the ordinary rules come first and the end rules (up to 32 nt, free GC) only
+        # fill the anchors the ordinary ones leave bare. A primer then never changes when
+        # --max-start-loss or --max-end-loss grows to reach it. Choosing the end-rule primer
+        # whenever one existed made it longer and so more variable, so pick_conserved dropped it
+        # from its bin, and the advice "set the limit to N" was wrong by the one base that moved
+        # the primer inside the allowance (and then again at N + 1, and so on).
+        found = _best_length(cons_seq, anchor, strand, params, span)
+        return found or (_best_length(cons_seq, anchor, strand, ends, span) if near_end else None)
+
+    fwds = [c for e in range(first, last + 1)
+            if (c := best(e, "+", e + 1 - first <= params.max_start_loss))]
+    revs = [c for s in range(first, last + 1)
+            if (c := best(s, "-", last + 1 - s <= params.max_end_loss))]
     return fwds, revs
 
 

@@ -98,9 +98,11 @@ def test_the_result_is_what_was_asked_for(start_poor, monkeypatch) -> None:
     assert asked.amplicons[0].fwd.end + 1 <= 50  # still inside the asked-for window
 
 
-def test_two_passes_when_the_first_answer_can_be_improved(start_poor, monkeypatch) -> None:
-    # the screen on the primers as first scored names 104, which only reaches 40 %; choosing
-    # again under 104 finds 108 reaches 100 %: the advice is the second pass, not the first
+def test_the_first_answer_is_reached_by_its_own_limit(start_poor, monkeypatch) -> None:
+    # The limit named by the screen on the primers as first scored must be one that really
+    # delivers: allowing it must not swap the primer it was named for. It used to (the end rules
+    # replaced the ordinary primer once the limit reached it), so 104 reached only 40 % and a
+    # second pass had to find 108. Now one screen names 104 and 104 reaches 100 %.
     limits = []
     original = tiling._candidates
     def spy(aln, cons, stats, params, span, progress=None):
@@ -108,9 +110,9 @@ def test_two_passes_when_the_first_answer_can_be_improved(start_poor, monkeypatc
         return original(aln, cons, stats, params, span, progress)
     monkeypatch.setattr(tiling, "_candidates", spy)
     res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
-    assert len(limits) == 3 and limits[0] == 50 and limits[1] < limits[2]  # run, pass 1, pass 2
+    assert len(limits) == 2 and limits[0] == 50  # the run, then the screen under the named limit
     [adv] = res.edge_advice
-    assert adv.limit == limits[2] and adv.edge_after == 100.0
+    assert adv.limit == limits[1] and adv.edge_after == 100.0
 
 
 def test_advice_is_judged_on_the_edge_not_the_weakest(interior_poor) -> None:
