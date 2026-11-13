@@ -138,6 +138,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outlier-action", choices=["warn", "drop", "abort"], default="drop")
 
     p.add_argument("--max-mismatches", type=int, default=2, help="max mismatches per primer")
+    p.add_argument("--max-ambiguous", type=int, default=2,
+                   help="N or other ambiguous bases in a sequence forgiven per primer (not at the "
+                        "3' end); 0 counts each as a mismatch")
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
@@ -167,6 +170,8 @@ def _design_problems(a: argparse.Namespace) -> list[str]:
         problems.append("--three-prime-window must be between 1 and --primer-len-min")
     if a.max_mismatches < 0:
         problems.append("--max-mismatches must be >= 0")
+    if a.max_ambiguous < 0:
+        problems.append("--max-ambiguous must be >= 0")
     if not 0 <= a.min_coverage <= 100:
         problems.append("--min-coverage must be between 0 and 100")
     if a.max_tm_diff < 0:
@@ -383,7 +388,7 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         a.tm_min, a.tm_opt, a.tm_max, a.max_tm_diff, a.primer_len_min, a.primer_len_max,
         a.gc_min, a.gc_max, a.amplicon_min, a.amplicon_max, a.candidates,
     )
-    sparams = ScoringParams(a.max_mismatches, a.three_prime_window)
+    sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
     progress("scoring", 0.3)
     results = [
         _design_region(r, included[r.name], cons, aln, a, dparams, sparams) for r in regions
@@ -426,7 +431,7 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         max_mismatches=a.max_mismatches, window=a.three_prime_window,
         degenerate=not a.no_degenerate, max_degeneracy=a.max_degeneracy,
         min_coverage=a.min_coverage, max_start_loss=a.max_start_loss,
-        max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len,
+        max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len, max_ambiguous=a.max_ambiguous,
     )
     if spans:
         result = tile_spans(al.aln, al.cons, al.stats, al.cmap, params, spans, progress)
@@ -481,6 +486,9 @@ def build_check_parser() -> argparse.ArgumentParser:
                    help="allowed deviation from the median length, as a fraction")
     p.add_argument("--outlier-action", choices=["warn", "drop", "abort"], default="drop")
     p.add_argument("--max-mismatches", type=int, default=2, help="max mismatches per primer")
+    p.add_argument("--max-ambiguous", type=int, default=2,
+                   help="N or other ambiguous bases in a sequence forgiven per primer (not at the "
+                        "3' end); 0 counts each as a mismatch")
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
@@ -493,6 +501,8 @@ def check_check_params(a: argparse.Namespace) -> None:
     problems: list[str] = []
     if a.max_mismatches < 0:
         problems.append("--max-mismatches must be >= 0")
+    if a.max_ambiguous < 0:
+        problems.append("--max-ambiguous must be >= 0")
     if a.three_prime_window < 1:
         problems.append("--three-prime-window must be >= 1")
     if not 0 <= a.min_coverage <= 100:
@@ -511,7 +521,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     progress("aligning", 0.05)
     al = _align_inputs(a, inp)
     progress("scoring", 0.5)
-    sparams = ScoringParams(a.max_mismatches, a.three_prime_window)
+    sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
     results = [check_assay(x, al.aln, al.cons, sparams, a.min_coverage) for x in assays]
     for res in results:
         if not res.located:

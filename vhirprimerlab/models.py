@@ -65,6 +65,10 @@ class Consensus:
 class ScoringParams:
     max_mismatches: int
     window: int
+    # Bases of a sequence that an IUPAC code (N, R, ...) leaves open between the primer's base and
+    # another one are unknown, not different. This many per primer are forgiven, the rest count as
+    # mismatches; 0 counts every one of them as a mismatch.
+    max_ambiguous: int = 2
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,7 @@ class MatchResult:
     mismatches: int
     three_prime_mismatches: int
     reason: str | None
+    ambiguous: int = 0  # unknown bases forgiven (see ScoringParams.max_ambiguous)
 
 
 @dataclass
@@ -250,10 +255,11 @@ class TilingParams:
     max_start_loss: int = 50  # genome bases allowed outside the first insert
     max_end_loss: int = 50  # genome bases allowed outside the last insert
     amplicon_len: int = 400  # target amplicon length when tiling chosen spans
+    max_ambiguous: int = 2  # see ScoringParams.max_ambiguous
 
     @property
     def scoring(self) -> ScoringParams:
-        return ScoringParams(self.max_mismatches, self.window)
+        return ScoringParams(self.max_mismatches, self.window, self.max_ambiguous)
 
 
 @dataclass(frozen=True)

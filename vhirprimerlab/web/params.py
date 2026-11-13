@@ -39,6 +39,7 @@ class Limits:
 # setting -> (flag, kind); kind is int, float, str, "aligner", "bool", "regions"
 _SHARED = {
     "max_mismatches": ("--max-mismatches", int),
+    "max_ambiguous": ("--max-ambiguous", int),
     "three_prime_window": ("--three-prime-window", int),
     "min_coverage": ("--min-coverage", float),
     "aligner": ("--aligner", "aligner"),

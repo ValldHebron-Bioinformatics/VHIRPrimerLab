@@ -108,6 +108,7 @@ span, and primer dimers are checked across the whole scheme.
 | `--primer-len-min/--primer-len-max` | 18 / 25 | primer length |
 | `--gc-min/--gc-max` | 40 / 60 | primer GC % |
 | `--max-mismatches` | 2 | max mismatches per primer |
+| `--max-ambiguous` | 2 | `N`/ambiguous bases in a sequence forgiven per primer (not at the 3′ end) |
 | `--three-prime-window` | 5 | 3′ bases that must match exactly |
 | `--no-degenerate` | off | plain primers only |
 | `--max-degeneracy` | 4 | max variants per degenerate primer |
@@ -291,7 +292,13 @@ IUPAC positions and `*_variants` the distinct oligos the primer stands for.
 A primer matches a sequence when it has at most `--max-mismatches` mismatches **and** none in the
 last `--three-prime-window` bases of its 3′ end. A pair covers a sequence when both primers match.
 
-- A gap, `N` or any ambiguous base in the sequence counts as a mismatch.
+- A gap counts as a mismatch.
+- An `N` or other ambiguous base in the sequence is *unknown*, not different: when it could be the
+  primer's base (`N`, or `R` against `A`) it is forgiven, up to `--max-ambiguous` of them per primer
+  (default 2); further ones count as mismatches, so a run of `N` still fails. One that cannot be
+  the primer's base (`Y` against `A`) is a mismatch. Within the last `--three-prime-window` bases an
+  unknown base fails the primer (reported as "ambiguous 3' base"), because it cannot be trusted
+  there. `--max-ambiguous 0` counts every one of them as a mismatch.
 - Each base the sequence has in addition to the primer (an insertion) counts as one mismatch.
 - A degenerate primer base matches any base it stands for (`R` matches `A` and `G`).
 
@@ -332,6 +339,7 @@ Regions are designed independently and may overlap.
 | `--length-tolerance` | 0.10 | allowed deviation from median length (fraction) |
 | `--outlier-action` | `drop` | `warn`, `drop` or `abort` |
 | `--max-mismatches` | 2 | max mismatches per primer |
+| `--max-ambiguous` | 2 | `N`/ambiguous bases in a sequence forgiven per primer (not at the 3′ end) |
 | `--three-prime-window` | 5 | 3′ bases that must match exactly |
 | `--min-coverage` | 95 | minimum coverage (%) |
 | `--allow-degenerate` | off | allow IUPAC bases at variable positions |
