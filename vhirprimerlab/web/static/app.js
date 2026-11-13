@@ -32,7 +32,7 @@ import {
   };
 
   const state = { page: 'design', seqs: null, limits: null, job: null, map: null, result: null,
-    engine: null, handle: null, hasResults: false, lastJob: null,
+    engine: null, handle: null, hasResults: false, lastJob: null, background: null,
     genome: { ann: null, map: null, refId: null, refLen: 0, blocks: [], edges: [], note: '',
       drag: null, pending: null } };
 
@@ -1580,6 +1580,59 @@ import {
     $('primers-file').value = '';
   }
 
+  // ---------- sequences the primers must not bind ----------
+  const MAX_BACKGROUND_BASES = 10_000_000; // the same cap as vhirprimerlab.cli.MAX_BACKGROUND_BASES
+
+  // What is wrong with a parsed background FASTA, or '' when it can be scanned.
+  function backgroundProblem(parsed) {
+    const bases = parsed.lens.reduce((a, b) => a + b, 0);
+    return bases > MAX_BACKGROUND_BASES
+      ? `${fmt(bases)} bases: the web app scans at most ${fmt(MAX_BACKGROUND_BASES)}. Keep only what the primers could really meet, or use the command line.`
+      : '';
+  }
+
+  // The FASTA goes with a run only where the primers are scanned for secondary sites (tiling, genes
+  // and check), and only in Advanced, where its field is: a hidden field must not change a run.
+  function backgroundFor(m) {
+    return advanced() && state.background && ['tile', 'genes', 'check'].includes(m) ? state.background.text : '';
+  }
+
+  function backgroundError(message) {
+    $('background-error').textContent = message || '';
+    $('background-error').hidden = !message;
+  }
+
+  function clearBackground() {
+    state.background = null;
+    $('background-file').value = '';
+    $('background-status').textContent = '';
+    $('background-clear').hidden = true;
+    backgroundError('');
+  }
+
+  async function readBackground(file) {
+    backgroundError('');
+    if (!file) return;
+    const maxMb = state.limits ? state.limits.max_upload_mb : 20;
+    const refuse = (message) => { clearBackground(); backgroundError(`${file.name}: ${message}`); };
+    if (file.size > maxMb * 1024 * 1024) { refuse(`larger than ${maxMb} MB. Use the command line for larger inputs.`); return; }
+    let text;
+    let parsed;
+    try {
+      text = await file.text();
+      parsed = parseFasta(text);
+    } catch (err) {
+      refuse(err.message);
+      return;
+    }
+    const problem = backgroundProblem(parsed);
+    if (problem) { refuse(problem); return; }
+    const bases = parsed.lens.reduce((a, b) => a + b, 0);
+    state.background = { name: file.name, text };
+    $('background-status').textContent = `${file.name} · ${fmt(parsed.ids.length)} sequence${parsed.ids.length === 1 ? '' : 's'} · ${fmt(bases)} bases`;
+    $('background-clear').hidden = false;
+  }
+
   // ---------- running a job ----------
   function settings(m) {
     const out = {};
@@ -1664,7 +1717,7 @@ import {
       const bases = state.seqs.lens.reduce((a, b) => a + b, 0);
       if (bases > LARGE_INPUT && !window.confirm('This may take several minutes and use a lot of memory on your computer. For large sets, the command line is faster.\n\nRun it here anyway?')) return;
     }
-    startRun({ mode: m, settings: settings(m), fasta: state.seqs.text, primers });
+    startRun({ mode: m, settings: settings(m), fasta: state.seqs.text, primers, background: backgroundFor(m) });
   }
 
   function onEvent(ev) {
@@ -1727,6 +1780,8 @@ import {
   document.querySelectorAll('input[name="level"]').forEach((r) => r.addEventListener('change', applyLevel));
   ['max_mismatches', 'three_prime_window'].forEach((id) => $(id).addEventListener('input', drawRule));
   $('primers-file').addEventListener('change', (e) => readPrimersFile(e.target.files[0]));
+  $('background-file').addEventListener('change', (e) => readBackground(e.target.files[0]));
+  $('background-clear').addEventListener('click', clearBackground);
   $('form').addEventListener('submit', submit);
   $('file').addEventListener('change', (e) => readFile(e.target.files[0]));
   $('clear').addEventListener('click', clearSeqs);

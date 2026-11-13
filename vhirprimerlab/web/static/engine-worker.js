@@ -46,10 +46,10 @@ register_aligner("mafft", _mafft)
 set_progress_reporter(lambda stage, fraction: vhirprimerlab_js.progress(stage, fraction))
 
 
-def run_job(mode, settings_json, fasta, primers):
+def run_job(mode, settings_json, fasta, primers, background=""):
     try:
         argv, files = prepare_job(mode, json.loads(settings_json), fasta.encode(), primers,
-                                  LIMITS, ["mafft"])
+                                  LIMITS, ["mafft"], background)
     except ValueError as exc:
         return json.dumps({"error": str(exc)}), b""
     job = Path("/job")
@@ -115,10 +115,11 @@ def run_job(mode, settings_json, fasta, primers):
     say('Ready', 1);
 
     return {
-      // job: {mode, settings, fasta, primers}; returns {error} or {result, files, zip}
+      // job: {mode, settings, fasta, primers, background}; returns {error} or {result, files, zip}
       run(job, onProgress) {
         progress = onProgress || (() => {});
-        const out = runJob(job.mode, JSON.stringify(job.settings || {}), job.fasta || '', job.primers || '');
+        const out = runJob(job.mode, JSON.stringify(job.settings || {}), job.fasta || '', job.primers || '',
+          job.background || '');
         try {
           const [text, zip] = out.toJs();
           return { ...JSON.parse(text), zip };

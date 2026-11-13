@@ -313,6 +313,8 @@ meet; more than 10 Mb is refused, because the scan reads every base of it (about
 seconds). Only the sequences you give are scanned: this is not a search of a whole database, so a
 clean report does not rule out binding elsewhere, and a site is judged by mismatches alone, not by
 its stability or the product's yield.
+In the web app it is the **Sequences the primers must not bind** box under Advanced, for tiling, Pick by
+gene and check (the file stays on your computer in the browser version).
 
 ### Reaction conditions
 

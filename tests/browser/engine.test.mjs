@@ -68,6 +68,22 @@ test("checks primer pairs", () => {
   assert.match(out.files["report.txt"], /Specificity\n-+\n[^\n]*scanned[^\n]*\n  No secondary binding sites found\./);
 });
 
+test("scans a background FASTA for secondary sites, in tiling and in check", () => {
+  const tiled = core.run({ mode: "tile", settings: { amplicons: 2 }, fasta: genomes, primers: "" });
+  const first = tiled.result.rows[0];
+  const host = `>host\n${"ACGT".repeat(60)}${first.forward_seq}${"TTGA".repeat(60)}\n`;
+  const withHost = core.run({ mode: "tile", settings: { amplicons: 2 }, fasta: genomes, primers: "", background: host });
+  assert.equal(withHost.error, undefined, withHost.error);
+  assert.match(withHost.files["report.txt"], /1 background sequence\(s\)/);
+  assert.match(withHost.files["report.txt"], /VHIRPrimerLab_1_LEFT: 1 site\(s\) in the background sequences/);
+  const pairs = tiled.result.rows.map((r) => `p${r.amplicon}\t${r.forward_seq}\t${r.reverse_seq}`).join("\n");
+  const checked = core.run({ mode: "check", settings: {}, fasta: genomes, primers: `${pairs}\n`, background: host });
+  assert.match(checked.files["report.txt"], /p1 forward: 1 site\(s\) in the background sequences/);
+  // a background that is not FASTA is refused in words, as the server does
+  assert.match(core.run({ mode: "tile", settings: { amplicons: 2 }, fasta: genomes, primers: "", background: "nonsense" }).error,
+    /background/i);
+});
+
 test("reports the same validation messages as the server", () => {
   assert.equal(core.run({ mode: "tile", settings: { amplicons: 500 }, fasta: genomes, primers: "" }).error,
     "The web app tiles up to 200 amplicons.");
