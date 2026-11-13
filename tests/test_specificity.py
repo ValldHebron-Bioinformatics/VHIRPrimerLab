@@ -203,3 +203,108 @@ def test_the_numpy_scan_actually_finds_planted_sites() -> None:
     text = place(place(text, 300, FWD), 1500, FWD)
     found = _Scanner(FWD, 5, 2).scan(_Coded(text))
     assert (300, 0) in found and (1500, 0) in found
+
+
+# --- check mode -----------------------------------------------------------------------
+
+def _check_setup(tmp_path):
+    """The synthetic genome family, a tiling of it, and its primers as pairs to check."""
+    import csv
+
+    from tests.synthetic import make_genome_family, write_fasta
+    from vhirprimerlab.cli import main
+
+    rows = make_genome_family()
+    aln = write_fasta(tmp_path / "aln.fasta", rows)
+    assert main(["--aligned", str(aln), "-n", "5", "-o", str(tmp_path / "design")]) in (0, 2)
+    with (tmp_path / "design" / "amplicons.tsv").open() as fh:
+        amplicons = list(csv.DictReader(fh, delimiter="\t"))
+    pairs = tmp_path / "pairs.tsv"
+    pairs.write_text("".join(f"a{r['amplicon']}\t{r['forward_seq']}\t{r['reverse_seq']}\n" for r in amplicons))
+    return rows, pairs, amplicons
+
+
+def _run_check(tmp_path, aln, pairs, name="chk", *flags):
+    from vhirprimerlab.cli import main
+
+    out = tmp_path / name
+    assert main(["check", "--aligned", str(aln), "--primers", str(pairs), "-o", str(out), *flags]) in (0, 2)
+    return (out / "report.txt").read_text()
+
+
+def test_check_mode_scans_for_secondary_sites_and_a_clean_scheme_says_so(tmp_path) -> None:
+    rows, pairs, _ = _check_setup(tmp_path)
+    text = _run_check(tmp_path, tmp_path / "aln.fasta", pairs)
+    assert "Specificity\n-----------" in text
+    assert "No secondary binding sites found." in text
+
+
+def test_check_mode_reports_a_second_site_of_a_users_primer(tmp_path) -> None:
+    from tests.synthetic import write_fasta
+
+    rows, pairs, amplicons = _check_setup(tmp_path)
+    forward = amplicons[0]["forward_seq"]
+    # a near-copy (one mismatch) far from its own site, in every sequence; an exact copy would make
+    # check call the primer's site ambiguous and leave the pair unlocated (see the next test)
+    near = forward[:8] + ("A" if forward[8] != "A" else "C") + forward[9:]
+    far = len(rows[0][1]) - 400
+    planted = [(sid, seq[:far] + near + seq[far + len(near):]) for sid, seq in rows]
+    aln = write_fasta(tmp_path / "planted.fasta", planted)
+    text = _run_check(tmp_path, aln, pairs, "chk2")
+    assert f"a1 forward: {len(rows)} secondary site(s) in {len(rows)} sequence(s)" in text
+    assert "No secondary binding sites found." not in text
+
+
+def test_check_mode_reports_the_product_a_second_site_could_make(tmp_path) -> None:
+    from tests.synthetic import write_fasta
+    from vhirprimerlab.specificity import reverse_complement
+
+    rows, pairs, amplicons = _check_setup(tmp_path)
+    forward, reverse = amplicons[0]["forward_seq"], amplicons[0]["reverse_seq"]
+    sid, seq = rows[0]
+    at = seq.find(reverse_complement(reverse)) - 250        # a second forward site facing the reverse primer
+    assert at > 0
+    near = forward[:8] + ("A" if forward[8] != "A" else "C") + forward[9:]
+    planted = [(s, q[:at] + near + q[at + len(near):]) for s, q in rows]
+    aln = write_fasta(tmp_path / "planted.fasta", planted)
+    text = _run_check(tmp_path, aln, pairs, "chk3")
+    assert "Unintended products" in text and "a1 forward × a1 reverse" in text
+
+
+def test_check_mode_scans_a_background(tmp_path) -> None:
+    from tests.synthetic import write_fasta
+
+    rows, pairs, amplicons = _check_setup(tmp_path)
+    host = write_fasta(tmp_path / "host.fasta", [("host", "ACGT" * 50 + amplicons[1]["reverse_seq"] + "TTGA" * 50)])
+    text = _run_check(tmp_path, tmp_path / "aln.fasta", pairs, "chk4", "--background", str(host))
+    assert "background sequence(s)" in text
+    assert "a2 reverse: 1 site(s) in the background sequences" in text
+
+
+def test_check_mode_says_which_pairs_it_could_not_scan(tmp_path) -> None:
+    rows, pairs, _ = _check_setup(tmp_path)
+    pairs.write_text(pairs.read_text() + "nowhere\tGATTACAGATTACAGATTACA\tCCCGGGAAATTTCCCGGGAAA\n"
+                     "short\tACGTACGTAC\tTTGGCCAATT\n")
+    text = _run_check(tmp_path, tmp_path / "aln.fasta", pairs, "chk5")
+    spec = text.split("Specificity")[1]
+    assert "not scanned: nowhere" in spec and "not scanned: short" in spec
+
+
+def test_check_mode_without_any_located_pair_still_finishes(tmp_path) -> None:
+    rows, _, _ = _check_setup(tmp_path)
+    nowhere = tmp_path / "nowhere.tsv"
+    nowhere.write_text("x\tGATTACAGATTACAGATTACA\tCCCGGGAAATTTCCCGGGAAA\n")
+    text = _run_check(tmp_path, tmp_path / "aln.fasta", nowhere, "chk6")
+    assert "not scanned: x" in text
+
+
+def test_an_exact_second_site_leaves_the_pair_unlocated_and_says_so(tmp_path) -> None:
+    from tests.synthetic import write_fasta
+
+    rows, pairs, amplicons = _check_setup(tmp_path)
+    forward = amplicons[0]["forward_seq"]
+    far = len(rows[0][1]) - 400
+    aln = write_fasta(tmp_path / "twice.fasta",
+                      [(sid, seq[:far] + forward + seq[far + len(forward):]) for sid, seq in rows])
+    text = _run_check(tmp_path, aln, pairs, "chk7")
+    assert "not scanned: a1 (ambiguous binding site for fwd primer" in text

@@ -268,7 +268,7 @@ reference has no bases where the amplicon falls (for example a partial genome), 
 coordinates are left empty and `note` says `amplicon not on reference <id>`. Options shared
 with design mode (`-i`/`--aligned`, `--aligner`, `--reference-id`, `--length-tolerance`,
 `--outlier-action`, `--max-mismatches`, `--three-prime-window`, `--min-coverage`, `-v`) work
-the same; design-only options such as `--region` are rejected. Exit codes: `0` every pair meets
+the same, and `--background` adds sequences to scan for secondary sites (see Specificity check); design-only options such as `--region` are rejected. Exit codes: `0` every pair meets
 `--min-coverage`, `2` at least one does not (outputs are still written), `1` error.
 
 ### Pipeline (region design)
@@ -300,6 +300,12 @@ other than its own site where it could bind, using the matching rule below (at m
 primer, how many secondary sites there are and in how many sequences, and **unintended products**:
 two primers of one pool whose sites face each other no further apart than the longest allowed
 amplicon, where at least one of the two sites is secondary. A clean run says so.
+
+`vhirprimerlab check` does the same for primers you already have, once it has located each pair on
+the alignment (it needs the designed site to tell it from another one, so a pair it cannot locate, or
+whose site is ambiguous, is listed as "not scanned" with the reason). The pairs are taken to share
+one tube, and a product between primers of different pairs is only a risk if you mix them. The
+longest product reported is the longest intended amplicon plus a quarter.
 
 `--background FASTA` adds sequences the primers must not bind: a co-circulating virus, a host
 transcript. Every site found there counts as secondary. Keep it to what the primers could really

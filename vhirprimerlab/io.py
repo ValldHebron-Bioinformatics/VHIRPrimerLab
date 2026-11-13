@@ -363,6 +363,14 @@ def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
     out += ["", "Dimers between pairs (if mixed in one tube)", "-------------------------------------------"]
     out += [f"{a} x {b}: ΔG {dg / 1000:.1f} kcal/mol" for a, b, dg in report.dimers] or [
         f"None below {report.thermo.max_dimer_dg / 1000:g} kcal/mol."]
+    if report.specificity is not None or report.specificity_notes:
+        out += ["", "Specificity", "-----------"]
+        if report.specificity is not None:
+            out += specificity_lines(report.specificity, report.params)
+            if len(report.results) > 1:
+                out.append("  Pairs are taken to share one tube: a product between primers of different "
+                           "pairs only forms if you mix them.")
+        out += [f"  {note}" for note in report.specificity_notes]
     out += ["", "Log", "---", *report.log_lines]
     Path(path).write_text("\n".join(out) + "\n")
 

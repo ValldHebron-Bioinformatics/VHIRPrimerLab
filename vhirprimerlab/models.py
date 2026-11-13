@@ -238,6 +238,8 @@ class CheckReport:
     log_lines: list[str]
     dimers: list[tuple[str, str, float]] = field(default_factory=list)  # across pairs
     thermo: Thermo = DEFAULT_THERMO
+    specificity: SpecificityReport | None = None  # None: no pair could be scanned
+    specificity_notes: list[str] = field(default_factory=list)  # pairs left out, and why
 
 
 @dataclass(frozen=True)

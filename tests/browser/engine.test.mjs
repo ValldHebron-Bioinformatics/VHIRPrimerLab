@@ -64,6 +64,8 @@ test("checks primer pairs", () => {
   const out = core.run({ mode: "check", settings: {}, fasta: genomes, primers: `${pairs}\n` });
   assert.equal(out.result.mode, "check");
   assert.deepEqual(out.result.rows.map((r) => r.name), ["p1", "p2"]);
+  // the secondary-site scan runs for the user's own primers too
+  assert.match(out.files["report.txt"], /Specificity\n-+\n[^\n]*scanned[^\n]*\n  No secondary binding sites found\./);
 });
 
 test("reports the same validation messages as the server", () => {

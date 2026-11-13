@@ -60,7 +60,7 @@ from vhirprimerlab.models import (
 from vhirprimerlab.ranking import failure_summary, rank
 from vhirprimerlab.regions import resolve_regions
 from vhirprimerlab.scoring import score_pair
-from vhirprimerlab.specificity import Oligo, check_specificity
+from vhirprimerlab.specificity import MIN_OLIGO, Oligo, check_specificity
 from vhirprimerlab.thermo import DEFAULT_THERMO, SALT_METHODS, TM_METHODS, Thermo
 from vhirprimerlab.tiling import tile, tile_spans
 
@@ -474,6 +474,30 @@ def _specificity(result, aln, params, background):
     return check_specificity(oligos, aln, params.scoring, result.geometry.len_max, background)
 
 
+def _check_specificity(results, aln, sparams, background):
+    """Scan the located pairs of a check run for secondary binding sites and unintended products.
+
+    Returns the report (None when no pair could be scanned) and a note for each pair left out. The
+    longest product of interest is the longest intended amplicon plus a quarter. All pairs are
+    taken to share one tube, as the dimer check between pairs already does.
+    """
+    oligos, notes, longest = [], [], 0
+    for res in results:
+        name = res.assay.name
+        if not res.located:
+            why = res.note or "not located"
+            notes.append(f"not scanned: {name} ({why}; its own site must be known to tell it from another)")
+        elif min(len(res.assay.forward), len(res.assay.reverse)) < MIN_OLIGO:
+            notes.append(f"not scanned: {name} (a primer is shorter than {MIN_OLIGO} bases)")
+        else:
+            oligos += [Oligo(f"{name} forward", 1, res.assay.forward, "+", res.fwd_cols[0], res.fwd_cols[-1]),
+                       Oligo(f"{name} reverse", 1, res.assay.reverse, "-", res.rev_cols[0], res.rev_cols[-1])]
+            longest = max(longest, res.rev_cols[-1] - res.fwd_cols[0] + 1)
+    if not oligos:
+        return None, notes
+    return check_specificity(oligos, aln, sparams, int(longest * 1.25), background), notes
+
+
 def _specificity_log(spec) -> list[str]:
     if spec.clean:
         return []
@@ -571,6 +595,9 @@ def build_check_parser() -> argparse.ArgumentParser:
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
     _add_thermo_args(p)
+    p.add_argument("--background", type=Path,
+                   help="nucleotide FASTA of sequences the primers must not bind (a host genome, "
+                        "co-circulating viruses; up to 10 Mb), scanned for secondary sites")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging and tracebacks")
     p.add_argument("--progress-file", type=Path, help=argparse.SUPPRESS)
     return p
@@ -598,6 +625,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     progress = make_progress(a.progress_file)
     inp = _load_inputs(a)
     assays = load_assays(a.primers, a.three_prime_window)  # before alignment: fail fast
+    background = _load_background(a.background)
     progress("aligning", 0.05)
     al = _align_inputs(a, inp)
     progress("scoring", 0.5)
@@ -613,6 +641,10 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     dimers = cross_dimers(assays, thermo)
     for line in structure_warnings(results, dimers, thermo):
         log.warning("%s", line)
+    progress("checking specificity", 0.85)
+    specificity, specificity_notes = _check_specificity(results, al.aln, sparams, background)
+    for line in _specificity_log(specificity) if specificity is not None else []:
+        log.warning("%s", line)
     write_check_tsv(results, al.cmap, a.outdir / "check.tsv")
     low = [r.assay.name for r in results if r.below_threshold]
     if low:
@@ -626,7 +658,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         n_conserved=sum(1 for s in al.stats if s.majority_freq == 1.0),
         mean_conservation=statistics.fmean(s.majority_freq for s in al.stats),
         min_coverage=a.min_coverage, results=results, log_lines=log_lines, dimers=dimers,
-        thermo=thermo,
+        thermo=thermo, specificity=specificity, specificity_notes=specificity_notes,
     )
     write_check_report(report, al.cmap, a.outdir / "report.txt")
     log.info("Wrote results to %s", a.outdir)
