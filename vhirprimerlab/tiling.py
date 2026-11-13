@@ -9,11 +9,13 @@ import math
 from typing import Callable
 
 from vhirprimerlab.candidates import (
+    CandidateMemo,
     end_loss,
     enumerate_primers,
     loss_limit,
     pick_conserved,
     score_primers,
+    structure_valid,
 )
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.models import (
@@ -152,31 +154,41 @@ def choose(
         preds.append([ri for ri in range(lo, hi)
                       if revs[ri].end - f.start + 1 <= geom.max_outer_overlap])
 
+    # the forward primers each reverse primer may follow, the other way round
+    succ: list[list[int]] = [[] for _ in revs]
+    for fi, rs in enumerate(preds):
+        for ri in rs:
+            succ[ri].append(fi)
+
     first_ok = [end_loss(f, span) <= params.max_start_loss for f in fwds]
     last_ok = [end_loss(r, span) <= params.max_end_loss for r in revs]
 
     def run(t: int) -> Path_ | None:
-        # layer value: (sum of coverage, sum of primer matches, -bases before the first
-        # primer, -sum of penalty); back[k][ri] = (fi, prev ri)
+        # Only amplicons covering at least t sequences can be used, whatever the layer, so they
+        # are picked out once. A layer's value is (sum of coverage, sum of primer matches, -bases
+        # before the first primer, -sum of penalty); back[k][ri] = (fi, prev ri).
+        viable = [[a for a in amps if a[1] >= t] for amps in by_rev]
         value: dict[int, tuple[int, int, int, float]] = {}
         back: list[dict[int, tuple[int, int | None]]] = [{}]
-        for ri, amps in enumerate(by_rev):
+        for ri, amps in enumerate(viable):
             for fi, cov, pm, neg in amps:
                 v = (cov, pm, -fwds[fi].start, neg)
-                if cov >= t and first_ok[fi] and (ri not in value or v > value[ri]):
+                if first_ok[fi] and (ri not in value or v > value[ri]):
                     value[ri] = v
                     back[0][ri] = (fi, None)
         for _ in range(n - 1):
+            # the best way to arrive at each forward primer: the largest (value, reverse primer)
             best_in: dict[int, tuple[tuple[int, int, int, float], int]] = {}
-            for fi, rs in enumerate(preds):
-                cands = [(value[ri], ri) for ri in rs if ri in value]
-                if cands:
-                    best_in[fi] = max(cands)
+            for ri, v in value.items():
+                for fi in succ[ri]:
+                    cand = (v, ri)
+                    if fi not in best_in or cand > best_in[fi]:
+                        best_in[fi] = cand
             new: dict[int, tuple[int, int, int, float]] = {}
             layer: dict[int, tuple[int, int | None]] = {}
-            for ri, amps in enumerate(by_rev):
+            for ri, amps in enumerate(viable):
                 for fi, cov, pm, neg in amps:
-                    if cov < t or fi not in best_in:
+                    if fi not in best_in:
                         continue
                     (s, m, start, p), prev = best_in[fi]
                     v = (s + cov, m + pm, start, p + neg)
@@ -405,11 +417,22 @@ def _no_fit(
 
 
 def _candidates(aln: Alignment, cons: Consensus, stats: list[ColumnStats], params: TilingParams,
-                span: tuple[int, int], progress: Progress | None = None):
-    """Forward and reverse primers for span, scored against every sequence."""
-    raw_f, raw_r = enumerate_primers(cons.seq, params, span)
-    picked = pick_conserved(raw_f, stats, cons, params) + pick_conserved(raw_r, stats, cons, params)
-    scored = score_primers(picked, aln, cons, params, progress=progress, span=span)
+                span: tuple[int, int], progress: Progress | None = None,
+                memo: CandidateMemo | None = None):
+    """Forward and reverse primers for span, scored against every sequence.
+
+    With a memo (made for these parameters, span and alignment) primers found and scored before
+    are reused: a re-run that only moves the end allowances repeats the work for the ends alone.
+    """
+    if memo is not None and not memo.fits(params, span, aln):
+        memo = None
+    # Most primers are never kept, and checking a primer's hairpins and dimers is what takes the
+    # time: that check is left until pick_conserved is about to keep one (the same primers result).
+    raw_f, raw_r = enumerate_primers(cons.seq, params, span, memo, check_structure=False)
+    valid = structure_valid(params)
+    picked = (pick_conserved(raw_f, stats, cons, params, valid=valid)
+              + pick_conserved(raw_r, stats, cons, params, valid=valid))
+    scored = score_primers(picked, aln, cons, params, progress=progress, span=span, memo=memo)
     return [c for c in scored if c.strand == "+"], [c for c in scored if c.strand == "-"]
 
 
@@ -421,7 +444,7 @@ def _coverages(path: Path_, aln: Alignment, params: TilingParams) -> list[float]
 
 def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry,
                  params: TilingParams, span, aln: Alignment, cons: Consensus,
-                 stats: list[ColumnStats]) -> list[EdgeAdvice]:
+                 stats: list[ColumnStats], memo: CandidateMemo | None = None) -> list[EdgeAdvice]:
     """Where giving up more bases at one span edge would lift that edge amplicon's coverage.
 
     Judged on the edge amplicon itself; the weakest amplicon is only a guard, so advice
@@ -457,7 +480,7 @@ def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry
             if limit <= getattr(cur, flag):
                 break
             cur = dataclasses.replace(params, **{flag: limit})
-            cur_f, cur_r = _candidates(aln, cons, stats, cur, span)
+            cur_f, cur_r = _candidates(aln, cons, stats, cur, span, memo=memo)
             path, g = _choose_any(cur_f, cur_r, n, geoms, cur, span, set())
             if not path:
                 break
@@ -511,8 +534,9 @@ def tile(
                     geoms[0].target_len)
 
     report("finding primers", 0.10)
+    memo = CandidateMemo(params, span, aln)  # lets the edge advice reuse the primers away from the ends
     fwds, revs = _candidates(aln, cons, stats, params, span,
-                             lambda stage, f: report(stage, 0.15 + 0.65 * f))
+                             lambda stage, f: report(stage, 0.15 + 0.65 * f), memo)
     log.info("Candidate primers: %d forward, %d reverse", len(fwds), len(revs))
 
     report("choosing amplicons", 0.85)
@@ -542,7 +566,7 @@ def tile(
     span_last = cmap.ref_length if span[1] == len(cons.seq) - 1 else _ref(cmap, cons, span[1], "end")
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
-    advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats)
+    advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats, memo)
     return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names, thermo=params.thermo), ends,
                         edge_advice=advice)
 

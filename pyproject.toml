@@ -9,7 +9,7 @@ description = "Design consensus PCR primers from a multi-FASTA of related sequen
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-dependencies = ["biopython>=1.81", "primer3-py>=2.0"]
+dependencies = ["biopython>=1.81", "primer3-py>=2.0", "numpy"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]

@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Literal
 
+import numpy as np
+
 from vhirprimerlab.models import Alignment, ScoringParams
 from vhirprimerlab.scoring import IUPAC
 
@@ -22,6 +24,7 @@ MIN_OLIGO = 15  # shorter than this and the 3' window is most of the primer
 MAX_FIND_VARIANTS = 16  # up to this many seeds are looked up with str.find, more with one regex
 MAX_SEED_VARIANTS = 256  # a degenerate 3' end with more variants than this is scanned base by base
 MAX_REPORTED_PRODUCTS = 50
+MAX_CODE_SEED = 27  # the longest 3' seed whose base-5 code fits an int64
 
 _COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
 
@@ -93,8 +96,36 @@ class _Hit:
     secondary: bool
 
 
+_BASE_VALUE = np.full(256, 4, dtype=np.int64)  # A, C, G, T = 0..3; anything else = 4
+for _i, _b in enumerate("ACGT"):
+    _BASE_VALUE[ord(_b)] = _i
+
+
+class _Coded:
+    """A sequence as bytes, with the base-5 code of every k-mer worked out once for all oligos."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.arr = np.frombuffer(text.encode("latin-1", "replace"), dtype=np.uint8)
+        self._values: np.ndarray | None = None
+        self._codes: dict[int, np.ndarray] = {}
+
+    def codes(self, k: int) -> np.ndarray:
+        """Code of the k-mer starting at each position; a k-mer with a non-ACGT base never equals
+        the code of a plain oligo, because that digit is 4 and theirs are 0..3."""
+        if k not in self._codes:
+            if self._values is None:
+                self._values = _BASE_VALUE[self.arr]
+            m = len(self.arr) - k + 1
+            codes = np.zeros(max(m, 0), dtype=np.int64)
+            for j in range(k if m > 0 else 0):
+                codes += self._values[j:j + m] * 5 ** j
+            self._codes[k] = codes
+        return self._codes[k]
+
+
 class _Scanner:
-    """One oligo's pattern: per-position allowed bases and the regex of its 3' seed."""
+    """One oligo's pattern: per-position allowed bases and its 3' seed."""
 
     def __init__(self, seq: str, window: int, max_mismatches: int) -> None:
         self.allowed = [IUPAC[c] for c in seq]
@@ -107,6 +138,16 @@ class _Scanner:
         self.seeds = seeds if len(seeds) <= MAX_FIND_VARIANTS else []
         self.pattern = (re.compile("(?=(?:" + "|".join(seeds) + "))")
                         if MAX_FIND_VARIANTS < len(seeds) <= MAX_SEED_VARIANTS else None)
+        # the same pattern for the numpy scan: which bases each position takes, and the seed's codes
+        self._offsets = np.arange(self.length)
+        self.ok = np.zeros((self.length, 256), dtype=bool)
+        for j, allowed in enumerate(self.allowed):
+            for base in allowed:
+                self.ok[j, ord(base)] = True
+        self.seed_codes = (
+            np.array([sum("ACGT".index(ch) * 5 ** k for k, ch in enumerate(s)) for s in seeds],
+                     dtype=np.int64)
+            if self.seed_len <= MAX_CODE_SEED and len(seeds) <= MAX_SEED_VARIANTS else None)
 
     def _seed_positions(self, text: str) -> Iterable[int]:
         """Where the 3' seed occurs in ``text``, as the start of the oligo it would belong to."""
@@ -123,8 +164,31 @@ class _Scanner:
         else:
             yield from range(0, len(text) - self.length + 1)
 
-    def scan(self, text: str) -> list[tuple[int, int]]:
-        """(start, mismatches) of every site on ``text``, as written."""
+    def scan(self, coded: _Coded) -> list[tuple[int, int]]:
+        """(start, mismatches) of every site on a sequence, as written.
+
+        The positions where the 3' seed occurs come from one vectorised comparison of k-mer codes,
+        and mismatches are counted only there, one position of the oligo at a time.
+        """
+        if self.seed_codes is None:
+            return self.scan_text(coded.text)
+        n, length, seed = len(coded.arr), self.length, self.seed_len
+        if n < length:
+            return []
+        codes = coded.codes(seed)
+        hit = (codes == self.seed_codes[0]) if len(self.seed_codes) == 1 else np.isin(codes, self.seed_codes)
+        starts = np.flatnonzero(hit) - (length - seed)
+        starts = starts[(starts >= 0) & (starts + length <= n)]
+        if not len(starts):
+            return []
+        # one gather of every candidate's bases, and one table lookup per (position, base)
+        bases = coded.arr[starts[:, None] + self._offsets]
+        mismatches = length - self.ok[self._offsets, bases].sum(axis=1)
+        keep = mismatches <= self.max_mismatches
+        return [(int(i), int(m)) for i, m in zip(starts[keep], mismatches[keep])]
+
+    def scan_text(self, text: str) -> list[tuple[int, int]]:
+        """The same, base by base in Python: for seeds too long or too degenerate to code."""
         length, seed, found = self.length, self.seed_len, []
         n = len(text)
         for i in self._seed_positions(text):
@@ -178,10 +242,10 @@ def check_specificity(
     hits_by_target: list[list[_Hit]] = []
     for sid, text, _, designed in targets:
         if text not in cache:
-            rc, n, found = reverse_complement(text), len(text), []
+            fwd, rev, n, found = _Coded(text), _Coded(reverse_complement(text)), len(text), []
             for k, scanner in enumerate(scanners):
-                found += [(k, i, mm, "+") for i, mm in scanner.scan(text)]
-                found += [(k, n - j - scanner.length, mm, "-") for j, mm in scanner.scan(rc)]
+                found += [(k, i, mm, "+") for i, mm in scanner.scan(fwd)]
+                found += [(k, n - j - scanner.length, mm, "-") for j, mm in scanner.scan(rev)]
             cache[text] = found
         hits: list[_Hit] = []
         for k, start, mm, strand in cache[text]:

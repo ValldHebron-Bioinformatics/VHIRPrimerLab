@@ -6,6 +6,7 @@ import csv
 import logging
 from collections import Counter
 from datetime import datetime
+from itertools import compress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -91,8 +92,20 @@ def alignment_from_records(records: list[Record]) -> Alignment:
                 f"Aligned sequences differ in length: '{r.id}' has {len(r.seq)} columns, "
                 f"'{records[0].id}' has {width}"
             )
-    keep = [c for c in range(width) if any(r.seq[c] != "-" for r in records)]
-    rows = ["".join(r.seq[c] for c in keep) for r in records]
+    # A column is kept when some row has a base there. One bit per column and row (1 = not a gap),
+    # OR-ed together, finds the all-gap columns without visiting every cell from Python.
+    chars = set().union(*(set(r.seq) for r in records))
+    table = {ord(c): "1" for c in chars}
+    table[ord("-")] = "0"
+    present = 0
+    for r in records:
+        present |= int(r.seq.translate(table), 2) if width else 0
+    flags = bin(present)[2:].zfill(width)
+    if "0" in flags:
+        keep = [bit == "1" for bit in flags]
+        rows = ["".join(compress(r.seq, keep)) for r in records]
+    else:
+        rows = [r.seq for r in records]
     return Alignment(ids=[r.id for r in records], rows=rows)
 
 

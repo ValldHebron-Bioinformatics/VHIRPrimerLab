@@ -159,3 +159,47 @@ def test_a_very_degenerate_3_prime_end_still_finds_its_sites(tail: str, path: st
     row = place(aln.rows[0], 1100, FWD)
     assert sites(check_specificity(oligos, Alignment(["s1"], [row]), P, max_product=900), "A_LEFT") == 1
     assert sites(check_specificity(oligos, aln, P, max_product=900), "A_LEFT") == 0
+
+
+# --- the vectorised scan agrees with the base-by-base one -----------------------------
+
+@pytest.mark.parametrize("seed", range(150))
+def test_the_numpy_scan_finds_what_the_plain_scan_finds(seed: int) -> None:
+    from vhirprimerlab.specificity import _Coded, _Scanner
+
+    rng = random.Random(seed)
+    length = rng.randint(15, 30)
+    oligo = "".join(rng.choice("ACGT") for _ in range(length))
+    for _ in range(rng.choice([0, 0, 1, 3])):                         # some degenerate positions
+        p = rng.randrange(length)
+        oligo = oligo[:p] + rng.choice("RYKMSWBDHVN") + oligo[p + 1:]
+    window, mismatches = rng.randint(2, 12), rng.randint(0, 3)
+    text = "".join(rng.choice("ACGT") for _ in range(rng.choice([5, length, 400, 3000])))
+    sites = []
+    for _ in range(rng.randint(0, 6)):                                # plant near-copies of the oligo
+        concrete = "".join(rng.choice(sorted(IUPAC_BASES[c])) for c in oligo)
+        for _ in range(rng.randint(0, 4)):
+            q = rng.randrange(length)
+            concrete = concrete[:q] + rng.choice("ACGT") + concrete[q + 1:]
+        at = rng.randrange(0, max(1, len(text) - length + 1))
+        sites.append(at)
+        text = text[:at] + concrete + text[at + length:]
+    if rng.random() < 0.5:                                            # N and gaps-turned-N in the text
+        for _ in range(rng.randint(1, 20)):
+            q = rng.randrange(len(text))
+            text = text[:q] + rng.choice("NRY") + text[q + 1:]
+    scanner = _Scanner(oligo, window, mismatches)
+    assert sorted(scanner.scan(_Coded(text))) == sorted(scanner.scan_text(text))
+
+
+IUPAC_BASES = {"A": "A", "C": "C", "G": "G", "T": "T", "R": "AG", "Y": "CT", "K": "GT", "M": "AC",
+               "S": "CG", "W": "AT", "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG", "N": "ACGT"}
+
+
+def test_the_numpy_scan_actually_finds_planted_sites() -> None:
+    from vhirprimerlab.specificity import _Coded, _Scanner
+
+    text = genome(2000, seed=11, avoid=(FWD, REV))
+    text = place(place(text, 300, FWD), 1500, FWD)
+    found = _Scanner(FWD, 5, 2).scan(_Coded(text))
+    assert (300, 0) in found and (1500, 0) in found

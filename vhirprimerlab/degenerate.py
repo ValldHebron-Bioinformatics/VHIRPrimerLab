@@ -121,8 +121,13 @@ def degenerate_site(
     three_prime: ThreePrime,
     gc_limits: tuple[float, float] | None = None,
     accept: Callable[[str], bool] | None = None,
+    initial: dict[str, tuple[int, int]] | None = None,
 ) -> str:
     """degenerate_pair's greedy rule for a single primer site (forward-strand orientation).
+
+    initial, when the caller has already scored the site on every distinct row slice, maps each
+    slice (row[cols[0]:cols[-1] + 1]) to match_primer's (mismatches, 3'-end problems) so that the
+    starting state is not worked out twice.
 
     Adding a degenerate base never breaks a match, so only rows not yet matched are
     re-scored. The 3'-terminal base is never changed, and with gc_limits no change may
@@ -136,20 +141,31 @@ def degenerate_site(
     lo, hi = cols[0], cols[-1] + 1
     weight = Counter(row[lo:hi] for row in aln.rows)
     offset = [c - lo for c in cols]
+    window = min(params.window, n)
+    in_window = range(n - window, n) if three_prime == "right" else range(window)
 
-    def misses(s: str, slices: list[str]) -> list[str]:
-        return [x for x in slices if not match_primer(s, offset, x, three_prime, params).ok]
+    def score(s: str, x: str) -> tuple[int, int]:
+        """(mismatches, 3'-end problems) of site s on slice x: match_primer's two counts."""
+        r = match_primer(s, offset, x, three_prime, params)
+        return r.mismatches, r.three_prime_mismatches
 
-    def burden(s: str, slices: list[str]) -> int:
-        return sum(weight[x] * match_primer(s, offset, x, three_prime, params).mismatches for x in slices)
+    def fits(state: tuple[int, int]) -> bool:
+        return state[1] == 0 and state[0] <= params.max_mismatches
 
-    unmatched = misses(site, list(weight))
+    # What a trial changes is one position. A slice that has a plain base there either gains a
+    # match (it is the base being added: one mismatch fewer, and one 3'-end problem fewer when the
+    # position is in the window) or is untouched, so its counts follow from the current ones. A gap
+    # or an ambiguity code there can shift the allowance for unknown bases, so those are re-scored.
+    # Adding a degenerate base never breaks a match, so only slices not yet matched are tracked.
+    state = {x: initial[x] if initial is not None and x in initial else score(site, x) for x in weight}
+    unmatched = [x for x in weight if not fits(state[x])]
+    state = {x: state[x] for x in unmatched}
     current = site
     best_site, best_missing = site, sum(weight[x] for x in unmatched)
     while unmatched:
-        current_burden = burden(current, unmatched)
+        current_burden = sum(weight[x] * state[x][0] for x in unmatched)
         n_missing = sum(weight[x] for x in unmatched)
-        trials: list[tuple[tuple[int, int, int, int], str, list[str]]] = []
+        trials: list[tuple[tuple[int, int, int, int], str, list[str], dict[str, tuple[int, int]]]] = []
         for i in range(n):
             if i == terminal:
                 continue
@@ -159,17 +175,28 @@ def degenerate_site(
                 trial = current[:i] + CODE_FOR[allowed | {b}] + current[i + 1:]
                 if fold(trial) > max_fold or not _gc_ok(trial, gc_limits):
                     continue
-                still = misses(trial, unmatched)
+                moved: dict[str, tuple[int, int]] = {}
+                for x in unmatched:
+                    base = x[offset[i]]
+                    mism, end = state[x]
+                    if base == b:
+                        moved[x] = (mism - 1, end - 1 if i in in_window else end)
+                    elif base in BASES:
+                        moved[x] = (mism, end)
+                    else:
+                        moved[x] = score(trial, x)
+                still = [x for x in unmatched if not fits(moved[x])]
                 gain = n_missing - sum(weight[x] for x in still)
-                removed = current_burden - burden(trial, unmatched)
+                removed = current_burden - sum(weight[x] * moved[x][0] for x in unmatched)
                 dist = n - 1 - i if three_prime == "right" else i
                 if gain > 0 or removed > 0:
-                    trials.append(((gain, removed, dist, -BASES.index(b)), trial, still))
+                    trials.append(((gain, removed, dist, -BASES.index(b)), trial, still, moved))
         trials.sort(key=lambda t: t[0], reverse=True)
         best = next((t for t in trials if accept is None or accept(t[1])), None)
         if best is None:
             break
-        _, current, unmatched = best
+        _, current, unmatched, moved = best
+        state = {x: moved[x] for x in unmatched}
         missing = sum(weight[x] for x in unmatched)
         if missing < best_missing:
             best_site, best_missing = current, missing
