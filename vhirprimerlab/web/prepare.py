@@ -11,7 +11,8 @@ import tempfile
 from pathlib import Path
 
 from vhirprimerlab.check import load_assays
-from vhirprimerlab.cli import parse_args, validate_args
+from vhirprimerlab.cli import MAX_BACKGROUND_BASES, parse_args, validate_args
+from vhirprimerlab.io import load_fasta
 from vhirprimerlab.models import PipelineError
 from vhirprimerlab.regions import parse_region_spec
 from vhirprimerlab.tiling import amplicons_for, max_amplicons, target_length
@@ -30,8 +31,12 @@ def prepare_job(
     primers_text: str,
     limits: Limits,
     aligners: list[str],
+    background_text: str = "",
 ) -> tuple[list[str], dict[str, bytes]]:
-    """(argv without -o, files for the job directory), or ValueError with a user-facing message."""
+    """(argv without -o, files for the job directory), or ValueError with a user-facing message.
+
+    background_text is an optional FASTA of sequences the primers must not bind (tiling and check).
+    """
     if mode not in MODES:
         raise ValueError(f"unknown mode: {mode}")
     if not isinstance(settings, dict):
@@ -48,9 +53,17 @@ def prepare_job(
             isinstance(r, str) and r.strip() for r in regions)):
         raise ValueError("Pick at least one region on the genome first.")
 
+    background = bool(background_text.strip())
+    if background and mode not in ("tile", "genes", "check"):
+        raise ValueError("Sequences to avoid are scanned when tiling and in check mode only.")
+    if background and len(background_text.encode()) > max_bytes:
+        raise ValueError(f"The background file is larger than {limits.max_upload_mb:g} MB; "
+                         "use the command line for larger inputs.")
+
     flags = build_argv(mode, settings)
     argv = (["check"] if mode == "check" else []) + ["-i", "input.fasta"]
     argv += (["--primers", "primers.tsv"] if mode == "check" else []) + flags
+    argv += ["--background", "background.fasta"] if background else []
     stderr = io.StringIO()
     try:
         with contextlib.redirect_stderr(stderr):
@@ -69,6 +82,19 @@ def prepare_job(
         upload.write_bytes(fasta)
         _, longest = validate_upload(upload, limits)
         files = {"input.fasta": fasta}
+        if background:
+            path = Path(tmp) / "background.fasta"
+            path.write_text(background_text)
+            try:
+                records = load_fasta(path)
+            except PipelineError as exc:
+                raise ValueError("The background sequences: " + str(exc).replace(str(path), "your file")) from None
+            bases = sum(len(r.seq) for r in records)
+            if bases > MAX_BACKGROUND_BASES:
+                raise ValueError(f"The background sequences hold {bases:,} bases; the web app scans at most "
+                                 f"{MAX_BACKGROUND_BASES:,}. Keep only what the primers could really meet, "
+                                 "or use the command line.")
+            files["background.fasta"] = background_text.encode()
         if mode == "tile":
             n = args.amplicons
             if n > limits.max_amplicons:

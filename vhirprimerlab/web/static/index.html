@@ -8,9 +8,8 @@
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f7f7f7">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Raleway:wght@400;500;600;700&display=swap"><!-- taste-skill-ignore: mono for primer sequences only -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://eutils.ncbi.nlm.nih.gov; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+<link rel="stylesheet" href="fonts.css"><!-- taste-skill-ignore: mono for primer sequences only -->
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -66,10 +65,13 @@
           <select id="organism" aria-label="Organism" aria-describedby="organism-help">
             <option value="">Choose an organism…</option>
           </select>
-          <label class="paste-label" for="accession">or search NCBI by name, or give an accession</label>
+          <label class="paste-label" for="accession">or search NCBI for a virus by name, or give an accession</label>
           <div class="org-find">
             <input type="text" id="accession" autocomplete="off" spellcheck="false" placeholder="dengue virus, or NC_039199.1" aria-label="Organism name or NCBI accession">
             <button type="button" class="btn btn-quiet" id="accession-load">Search</button>
+          </div>
+          <div class="drop-actions">
+            <button type="button" class="btn btn-quiet" id="best-match">Find the best match</button>
           </div>
           <p class="help" id="org-hits-note" role="status" hidden></p>
           <ul class="org-hits" id="org-hits" hidden></ul>
@@ -77,7 +79,7 @@
             <label class="btn btn-quiet" for="genbank">Load a GenBank file</label>
             <input class="sr-only" type="file" id="genbank" accept=".gb,.gbk,.gbff,.genbank,.txt,text/plain">
           </div>
-          <p class="help" id="organism-help">Your browser asks NCBI for the annotation and keeps it for next time. Only the name or accession you type leaves your computer; your sequences never do. A GenBank file needs no network at all.</p>
+          <p class="help" id="organism-help">Your browser asks NCBI for the annotation and keeps it for next time. Only the name or accession you type leaves your computer; your sequences never do. A GenBank file needs no network at all. “Find the best match” compares your sequences with the listed organisms, plus any name or accession typed above; nothing more leaves your computer.</p>
           <p class="error" id="organism-error" role="alert" hidden></p>
         </fieldset>
 
@@ -152,6 +154,31 @@
               <div class="field" data-modes="tile regions genes"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
               <div class="field" data-modes="tile regions check genes"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
             </div>
+            <fieldset class="field conditions" data-modes="tile regions check genes">
+              <legend>Reaction conditions</legend>
+              <p class="help" id="conditions-help">The buffer every melting temperature and primer structure is calculated for. The defaults are primer3's.</p>
+              <div class="grid-fields">
+                <div class="field"><label for="mv_conc">Na⁺/K⁺ (mM)</label><input type="number" id="mv_conc" name="mv_conc" autocomplete="off" data-setting="mv_conc" value="50" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dv_conc">Mg²⁺ (mM)</label><input type="number" id="dv_conc" name="dv_conc" autocomplete="off" data-setting="dv_conc" value="1.5" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dntp_conc">Each dNTP (mM)</label><input type="number" id="dntp_conc" name="dntp_conc" autocomplete="off" data-setting="dntp_conc" value="0.6" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dna_conc">Primer (nM)</label><input type="number" id="dna_conc" name="dna_conc" autocomplete="off" data-setting="dna_conc" value="50" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="tm_method">Tm formula</label><select id="tm_method" name="tm_method" data-setting="tm_method"><option value="santalucia">SantaLucia</option><option value="breslauer">Breslauer</option></select></div>
+                <div class="field"><label for="salt_correction">Salt correction</label><select id="salt_correction" name="salt_correction" data-setting="salt_correction"><option value="santalucia">SantaLucia</option><option value="owczarzy">Owczarzy</option><option value="schildkraut">Schildkraut</option></select></div>
+                <div class="field"><label for="structure_temp">Hairpin/dimer at (°C)</label><input type="number" id="structure_temp" name="structure_temp" autocomplete="off" data-setting="structure_temp" value="37" min="0" max="100" step="any"></div>
+                <div class="field"><label for="max_dimer_dg">Dimer if ΔG below (kcal/mol)</label><input type="number" id="max_dimer_dg" name="max_dimer_dg" autocomplete="off" data-setting="max_dimer_dg" value="-9" max="-0.1" step="any"></div>
+              </div>
+            </fieldset>
+            <fieldset class="field background-box" data-modes="tile genes check">
+              <legend>Sequences the primers must not bind</legend>
+              <p class="help" id="background-help">Optional. A FASTA of what the primers could meet besides your target, such as a host transcriptome or a co-circulating virus (up to 10 million bases in all). The report lists any place a primer could bind in them.</p>
+              <div class="drop-actions">
+                <label class="btn btn-quiet" for="background-file">Choose a FASTA file</label>
+                <input class="sr-only" type="file" id="background-file" accept=".fasta,.fa,.fna,.fas,.txt,text/plain" aria-describedby="background-help background-status">
+                <button type="button" class="btn btn-quiet" id="background-clear" hidden>Remove</button>
+              </div>
+              <p class="help" id="background-status" aria-live="polite"></p>
+              <p class="error" id="background-error" role="alert" hidden></p>
+            </fieldset>
             <label class="check" data-modes="tile"><input type="checkbox" id="degenerate" checked> Allow degenerate bases (IUPAC) where they rescue sequences</label>
             <label class="check" data-modes="regions"><input type="checkbox" id="allow_degenerate"> Allow degenerate bases (IUPAC) where they rescue sequences</label>
           </div>

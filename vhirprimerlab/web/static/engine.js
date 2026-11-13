@@ -2,7 +2,7 @@
 //   engine.name            'server' | 'browser'
 //   engine.limits()        Promise of the upload limits and installed aligners
 //   engine.run(job, onEvent) -> {promise, cancel}
-//        job: {mode, settings, fasta (text), primers (text)}
+//        job: {mode, settings, fasta (text), primers (text), background (text, optional FASTA)}
 //        onEvent({phase: 'loading'|'queued'|'running', stage, progress, queuePosition, jobId})
 //        promise resolves {status: 'done'|'failed', result, error, downloads: [{name, href}], zip}
 //        and rejects with an Error (err.cancelled when cancelled, err.invalid for bad input)
@@ -89,6 +89,7 @@
           body.append('params', JSON.stringify(job.settings || {}));
           body.append('fasta', new Blob([job.fasta], { type: 'text/plain' }), 'input.fasta');
           if (job.mode === 'check') body.append('primers_text', job.primers || '');
+          if (job.background) body.append('background_text', job.background);
           let response;
           try {
             response = await fetch('/api/jobs', { method: 'POST', body });
@@ -177,7 +178,7 @@
             reject(new Error('Could not load the analysis tools. Check your connection and reload the page.'));
           };
           w.postMessage({ type: 'run', mode: job.mode, settings: job.settings || {},
-            fasta: job.fasta, primers: job.primers || '' });
+            fasta: job.fasta, primers: job.primers || '', background: job.background || '' });
         });
         return {
           promise,

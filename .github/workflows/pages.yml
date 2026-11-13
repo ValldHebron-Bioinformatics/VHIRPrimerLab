@@ -19,7 +19,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mafft
+      - run: pip install -e ".[dev,web]"
+      - run: npm ci
+        working-directory: tests/browser
+      - run: pytest -q
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages

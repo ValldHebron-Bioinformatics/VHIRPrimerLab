@@ -14,6 +14,10 @@ const CACHE_PREFIX = `${CACHE_ROOT}v3.`;
 // instead of cached.
 const CACHE_MAX_BASES = 100_000;
 const RETRY_WAITS = [1000, 3000];   // ms before the first and second retry
+const REQUEST_TIMEOUT = 30_000;     // ms for one request; a stalled connection is retried like a 5xx
+// NCBI asks automated clients to say who they are, so that it can reach out before it blocks one.
+const TOOL = 'vhirprimerlab';
+const withTool = (url) => `${url}${url.includes('?') ? '&' : '?'}tool=${TOOL}`;
 
 // What a user can click to ask for primers. rRNA and the other RNAs are here because a
 // parasite record is a marker locus (18S, 16S) that carries nothing else.
@@ -259,7 +263,7 @@ async function getWithRetry(fetch, url, wait) {
   for (let attempt = 0; ; attempt++) {
     let response;
     try {
-      response = await fetch(url);
+      response = await fetch(withTool(url), { signal: AbortSignal.timeout(REQUEST_TIMEOUT) });
     } catch (cause) {
       throw noResponse(cause);
     }
@@ -306,7 +310,9 @@ export async function fetchRecordLength(accession, { fetch = globalThis.fetch, w
   } catch { return null; }
 }
 
-// Reference records whose name matches, for the user to choose from. Unlike fetchRecordLength this
+// Viral reference records whose name matches, for the user to choose from. The viruses filter is
+// needed: without it the top hits for a virus name are human, mouse and rat genes, and the
+// virus's own genome is not among them. Unlike fetchRecordLength this
 // throws when NCBI cannot answer, so "the search failed" is never shown as "nothing was found".
 // Records over the cap are left out: they could not be loaded anyway.
 export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = sleep } = {}) {
@@ -317,7 +323,7 @@ export async function searchOrganisms(query, { fetch = globalThis.fetch, wait = 
     if (!response.ok) throw httpError(response.status);
     return response.json();
   };
-  const term = encodeURIComponent(`${name} AND srcdb_refseq[prop]`);
+  const term = encodeURIComponent(`${name} AND srcdb_refseq[prop] AND viruses[filter]`);
   const found = await getJson(`${EUTILS}/esearch.fcgi?db=nuccore&retmode=json&retmax=10&term=${term}`);
   const ids = found?.esearchresult?.idlist ?? [];
   if (!ids.length) return [];

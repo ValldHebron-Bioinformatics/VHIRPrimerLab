@@ -47,6 +47,7 @@ from vhirprimerlab.models import (
     DesignParams,
     LengthFilterResult,
     PipelineError,
+    primer_names,
     Record,
     Region,
     RegionResult,
@@ -59,6 +60,8 @@ from vhirprimerlab.models import (
 from vhirprimerlab.ranking import failure_summary, rank
 from vhirprimerlab.regions import resolve_regions
 from vhirprimerlab.scoring import score_pair
+from vhirprimerlab.specificity import MIN_OLIGO, Oligo, check_specificity
+from vhirprimerlab.thermo import DEFAULT_THERMO, SALT_METHODS, TM_METHODS, Thermo
 from vhirprimerlab.tiling import tile, tile_spans
 
 log = logging.getLogger("vhirprimerlab")
@@ -138,9 +141,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--outlier-action", choices=["warn", "drop", "abort"], default="drop")
 
     p.add_argument("--max-mismatches", type=int, default=2, help="max mismatches per primer")
+    p.add_argument("--max-ambiguous", type=int, default=2,
+                   help="N or other ambiguous bases in a sequence forgiven per primer (not at the "
+                        "3' end); 0 counts each as a mismatch")
+    p.add_argument("--background", type=Path,
+                   help="nucleotide FASTA of sequences the primers must not bind (a host genome, "
+                        "co-circulating viruses; up to 10 Mb), scanned when tiling")
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
+    _add_thermo_args(p)
     p.add_argument("--allow-degenerate", action="store_true", help="allow IUPAC bases in primers")
     p.add_argument("--max-degeneracy", type=int,
                    help="max fold per degenerate primer (default 4 when tiling, 8 otherwise)")
@@ -148,6 +158,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-pairs", type=int, default=5, help="pairs to report per region")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging and tracebacks")
     return p
+
+
+def _add_thermo_args(p: argparse.ArgumentParser) -> None:
+    """Reaction conditions for every Tm, hairpin and dimer calculation (defaults: primer3's own)."""
+    g = p.add_argument_group(
+        "reaction conditions", "the buffer Tm and primer structure are calculated for")
+    d = DEFAULT_THERMO
+    g.add_argument("--mv-conc", type=float, default=d.mv_conc, help="monovalent cations, mM (Na+, K+)")
+    g.add_argument("--dv-conc", type=float, default=d.dv_conc, help="divalent cations, mM (Mg2+)")
+    g.add_argument("--dntp-conc", type=float, default=d.dntp_conc, help="each dNTP, mM")
+    g.add_argument("--dna-conc", type=float, default=d.dna_conc, help="oligo concentration, nM")
+    g.add_argument("--tm-method", choices=TM_METHODS, default=d.tm_method, help="Tm formula")
+    g.add_argument("--salt-correction", choices=SALT_METHODS, default=d.salt_method,
+                   help="salt correction of the Tm")
+    g.add_argument("--structure-temp", type=float, default=d.structure_temp,
+                   help="temperature (°C) at which hairpin and dimer ΔG are evaluated")
+    g.add_argument("--max-dimer-dg", type=float, default=d.max_dimer_dg / 1000,
+                   help="two primers of a pool whose dimer ΔG (kcal/mol) is below this form a dimer")
+
+
+def thermo_from_args(a: argparse.Namespace) -> Thermo:
+    return Thermo(a.mv_conc, a.dv_conc, a.dntp_conc, a.dna_conc, a.tm_method, a.salt_correction,
+                  a.structure_temp, a.max_dimer_dg * 1000)
 
 
 def _design_problems(a: argparse.Namespace) -> list[str]:
@@ -167,12 +200,15 @@ def _design_problems(a: argparse.Namespace) -> list[str]:
         problems.append("--three-prime-window must be between 1 and --primer-len-min")
     if a.max_mismatches < 0:
         problems.append("--max-mismatches must be >= 0")
+    if a.max_ambiguous < 0:
+        problems.append("--max-ambiguous must be >= 0")
     if not 0 <= a.min_coverage <= 100:
         problems.append("--min-coverage must be between 0 and 100")
     if a.max_tm_diff < 0:
         problems.append("--max-tm-diff must be >= 0")
     if a.max_degeneracy < 1:
         problems.append("--max-degeneracy must be >= 1")
+    problems += thermo_from_args(a).problems()
     return problems
 
 
@@ -195,6 +231,7 @@ def _score_candidate(
     allow_degenerate: bool,
     max_fold: int,
     gc_limits: tuple[float, float] | None = None,
+    thermo: Thermo = DEFAULT_THERMO,
 ) -> ScoredPair:
     f, r = cand.forward, cand.reverse
     fwd_cols = cons.cons_to_col[f.start: f.start + f.length]
@@ -211,8 +248,8 @@ def _score_candidate(
     return ScoredPair(
         pair=cand, fwd_seq=fwd_seq, rev_seq=rev_seq, fwd_cols=fwd_cols, rev_cols=rev_cols,
         coverage=cov, degenerate=degenerate,
-        fwd_tm_range=tm_range(fwd_seq) if degenerate else None,
-        rev_tm_range=tm_range(rev_seq) if degenerate else None,
+        fwd_tm_range=tm_range(fwd_seq, thermo) if degenerate else None,
+        rev_tm_range=tm_range(rev_seq, thermo) if degenerate else None,
     )
 
 
@@ -231,7 +268,8 @@ def _design_region(
         raise PipelineError(f"Region '{region.name}': {exc}") from exc
     scored = [
         _score_candidate(
-            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max)
+            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max),
+            dparams.thermo,
         )
         for c in design.pairs
     ]
@@ -381,9 +419,9 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
 
     dparams = DesignParams(
         a.tm_min, a.tm_opt, a.tm_max, a.max_tm_diff, a.primer_len_min, a.primer_len_max,
-        a.gc_min, a.gc_max, a.amplicon_min, a.amplicon_max, a.candidates,
+        a.gc_min, a.gc_max, a.amplicon_min, a.amplicon_max, a.candidates, thermo_from_args(a),
     )
-    sparams = ScoringParams(a.max_mismatches, a.three_prime_window)
+    sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
     progress("scoring", 0.3)
     results = [
         _design_region(r, included[r.name], cons, aln, a, dparams, sparams) for r in regions
@@ -409,6 +447,69 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     return EXIT_BELOW_THRESHOLD if failed else EXIT_OK
 
 
+MAX_BACKGROUND_BASES = 10_000_000
+
+
+def _load_background(path: Path | None) -> list[tuple[str, str]]:
+    """The --background sequences, refused when too large to scan in reasonable time."""
+    if path is None:
+        return []
+    records = load_fasta(path)
+    total = sum(len(r.seq) for r in records)
+    if total > MAX_BACKGROUND_BASES:
+        raise PipelineError(
+            f"--background holds {total:,} bases; at most {MAX_BACKGROUND_BASES:,} are scanned. "
+            "Keep the sequences the primers could really meet (the host's transcriptome rather "
+            "than its genome, for instance)")
+    return [(r.id, r.seq) for r in records]
+
+
+def _specificity(result, aln, params, background):
+    """Scan the primers of a tiling for secondary binding sites and unintended products."""
+    oligos = []
+    for a in result.amplicons:
+        left, right = primer_names(a.name)
+        oligos += [Oligo(left, a.pool, a.fwd.seq, "+", a.fwd.cols[0], a.fwd.cols[-1]),
+                   Oligo(right, a.pool, a.rev.seq, "-", a.rev.cols[0], a.rev.cols[-1])]
+    return check_specificity(oligos, aln, params.scoring, result.geometry.len_max, background)
+
+
+def _check_specificity(results, aln, sparams, background):
+    """Scan the located pairs of a check run for secondary binding sites and unintended products.
+
+    Returns the report (None when no pair could be scanned) and a note for each pair left out. The
+    longest product of interest is the longest intended amplicon plus a quarter. All pairs are
+    taken to share one tube, as the dimer check between pairs already does.
+    """
+    oligos, notes, longest = [], [], 0
+    for res in results:
+        name = res.assay.name
+        if not res.located:
+            why = res.note or "not located"
+            notes.append(f"not scanned: {name} ({why}; its own site must be known to tell it from another)")
+        elif min(len(res.assay.forward), len(res.assay.reverse)) < MIN_OLIGO:
+            notes.append(f"not scanned: {name} (a primer is shorter than {MIN_OLIGO} bases)")
+        else:
+            oligos += [Oligo(f"{name} forward", 1, res.assay.forward, "+", res.fwd_cols[0], res.fwd_cols[-1]),
+                       Oligo(f"{name} reverse", 1, res.assay.reverse, "-", res.rev_cols[0], res.rev_cols[-1])]
+            longest = max(longest, res.rev_cols[-1] - res.fwd_cols[0] + 1)
+    if not oligos:
+        return None, notes
+    return check_specificity(oligos, aln, sparams, int(longest * 1.25), background), notes
+
+
+def _specificity_log(spec) -> list[str]:
+    if spec.clean:
+        return []
+    names = [p.name for p in spec.primers if p.off_target_sites or p.background_sites]
+    lines = [f"Secondary binding sites found for {len(names)} primer(s): {', '.join(names)}"
+             if names else "Secondary binding sites found"]
+    if spec.n_products:
+        lines.append(f"{spec.n_products} possible unintended product(s); see the Specificity "
+                     "section of report.txt")
+    return lines
+
+
 def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     check_tiling_params(a)
     progress = make_progress(a.progress_file)
@@ -417,6 +518,7 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
     for span in spans or []:
         check_span(span, inp.ref_len)
     progress("aligning", 0.05)
+    background = _load_background(a.background)  # before the long steps, so a bad file fails fast
     al = _align_inputs(a, inp)
     params = TilingParams(
         n_amplicons=a.amplicons if a.amplicons is not None else 1,  # spans work it out
@@ -426,12 +528,17 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         max_mismatches=a.max_mismatches, window=a.three_prime_window,
         degenerate=not a.no_degenerate, max_degeneracy=a.max_degeneracy,
         min_coverage=a.min_coverage, max_start_loss=a.max_start_loss,
-        max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len,
+        max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len, max_ambiguous=a.max_ambiguous,
+        thermo=thermo_from_args(a),
     )
     if spans:
         result = tile_spans(al.aln, al.cons, al.stats, al.cmap, params, spans, progress)
     else:
         result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
+    progress("checking specificity", 0.92)
+    result.specificity = _specificity(result, al.aln, params, background)
+    for line in _specificity_log(result.specificity):
+        log.warning("%s", line)
     progress("writing", 0.95)
     write_tiling_tsv(result, al.cmap, a.outdir / "amplicons.tsv")
     write_order_tsv(tiling_order(result), a.outdir / "primers.tsv")
@@ -481,9 +588,16 @@ def build_check_parser() -> argparse.ArgumentParser:
                    help="allowed deviation from the median length, as a fraction")
     p.add_argument("--outlier-action", choices=["warn", "drop", "abort"], default="drop")
     p.add_argument("--max-mismatches", type=int, default=2, help="max mismatches per primer")
+    p.add_argument("--max-ambiguous", type=int, default=2,
+                   help="N or other ambiguous bases in a sequence forgiven per primer (not at the "
+                        "3' end); 0 counts each as a mismatch")
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
+    _add_thermo_args(p)
+    p.add_argument("--background", type=Path,
+                   help="nucleotide FASTA of sequences the primers must not bind (a host genome, "
+                        "co-circulating viruses; up to 10 Mb), scanned for secondary sites")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging and tracebacks")
     p.add_argument("--progress-file", type=Path, help=argparse.SUPPRESS)
     return p
@@ -493,12 +607,15 @@ def check_check_params(a: argparse.Namespace) -> None:
     problems: list[str] = []
     if a.max_mismatches < 0:
         problems.append("--max-mismatches must be >= 0")
+    if a.max_ambiguous < 0:
+        problems.append("--max-ambiguous must be >= 0")
     if a.three_prime_window < 1:
         problems.append("--three-prime-window must be >= 1")
     if not 0 <= a.min_coverage <= 100:
         problems.append("--min-coverage must be between 0 and 100")
     if a.length_tolerance <= 0:
         problems.append("--length-tolerance must be > 0")
+    problems += thermo_from_args(a).problems()
     if problems:
         raise PipelineError("Invalid parameters: " + "; ".join(problems))
 
@@ -508,19 +625,25 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     progress = make_progress(a.progress_file)
     inp = _load_inputs(a)
     assays = load_assays(a.primers, a.three_prime_window)  # before alignment: fail fast
+    background = _load_background(a.background)
     progress("aligning", 0.05)
     al = _align_inputs(a, inp)
     progress("scoring", 0.5)
-    sparams = ScoringParams(a.max_mismatches, a.three_prime_window)
-    results = [check_assay(x, al.aln, al.cons, sparams, a.min_coverage) for x in assays]
+    sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
+    thermo = thermo_from_args(a)
+    results = [check_assay(x, al.aln, al.cons, sparams, a.min_coverage, thermo) for x in assays]
     for res in results:
         if not res.located:
             log.warning("Pair %s: not located (%s)", res.assay.name, res.note)
         else:
             log.info("Pair %s: %.1f%% coverage", res.assay.name, res.coverage.coverage_pct)
     progress("checking primer dimers", 0.8)
-    dimers = cross_dimers(assays)
-    for line in structure_warnings(results, dimers):
+    dimers = cross_dimers(assays, thermo)
+    for line in structure_warnings(results, dimers, thermo):
+        log.warning("%s", line)
+    progress("checking specificity", 0.85)
+    specificity, specificity_notes = _check_specificity(results, al.aln, sparams, background)
+    for line in _specificity_log(specificity) if specificity is not None else []:
         log.warning("%s", line)
     write_check_tsv(results, al.cmap, a.outdir / "check.tsv")
     low = [r.assay.name for r in results if r.below_threshold]
@@ -535,6 +658,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         n_conserved=sum(1 for s in al.stats if s.majority_freq == 1.0),
         mean_conservation=statistics.fmean(s.majority_freq for s in al.stats),
         min_coverage=a.min_coverage, results=results, log_lines=log_lines, dimers=dimers,
+        thermo=thermo, specificity=specificity, specificity_notes=specificity_notes,
     )
     write_check_report(report, al.cmap, a.outdir / "report.txt")
     log.info("Wrote results to %s", a.outdir)

@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import itertools
 
-import primer3
-
 from vhirprimerlab.scoring import IUPAC
+from vhirprimerlab.thermo import DEFAULT_THERMO, DIMER_DG, Thermo
 
 MAX_STRUCTURE_TM = 47.0  # primer3's default limit for hairpin and self-dimer Tm
 MAX_END_GC = 3  # at most 3 G/C among the last 5 bases (3' end)
-DIMER_DG = -9000.0  # cal/mol; two primers in one pool below this form a dimer
 
 
 def variants(primer: str) -> list[str]:
@@ -28,23 +26,23 @@ def end_gc(primer: str) -> int:
     return sum(bool(IUPAC[b] & {"G", "C"}) for b in primer[-5:])
 
 
-def structure_ok(primer: str) -> bool:
+def structure_ok(primer: str, thermo: Thermo = DEFAULT_THERMO) -> bool:
     """True when no variant folds into a hairpin or sticks to itself or to another variant,
     and no variant has more than MAX_END_GC G/C in its last 5 bases. primer is 5'->3'."""
     if end_gc(primer) > MAX_END_GC:
         return False
     vs = variants(primer)
-    if any(primer3.calc_hairpin(v).tm > MAX_STRUCTURE_TM for v in vs):
+    if any(thermo.hairpin_tm(v) > MAX_STRUCTURE_TM for v in vs):
         return False
     for i, a in enumerate(vs):
-        if primer3.calc_homodimer(a).tm > MAX_STRUCTURE_TM:
+        if thermo.homodimer_tm(a) > MAX_STRUCTURE_TM:
             return False
-        if any(primer3.calc_heterodimer(a, b).tm > MAX_STRUCTURE_TM for b in vs[i + 1:]):
+        if any(thermo.heterodimer(a, b)[0] > MAX_STRUCTURE_TM for b in vs[i + 1:]):
             return False
     return True
 
 
-def structure_report(primer: str) -> list[str]:
+def structure_report(primer: str, thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     """What structure_ok rejects, with the worst variant's value; empty when it passes."""
     out: list[str] = []
     n = end_gc(primer)
@@ -52,10 +50,10 @@ def structure_report(primer: str) -> list[str]:
         out.append(f"{n} G/C in the last 5 bases (max {MAX_END_GC})")
     vs = variants(primer)
     worst = (
-        ("hairpin", max(primer3.calc_hairpin(v).tm for v in vs)),
-        ("self-dimer", max(primer3.calc_homodimer(v).tm for v in vs)),
+        ("hairpin", max(thermo.hairpin_tm(v) for v in vs)),
+        ("self-dimer", max(thermo.homodimer_tm(v) for v in vs)),
         ("dimer between its variants", max(
-            (primer3.calc_heterodimer(a, b).tm for i, a in enumerate(vs) for b in vs[i + 1:]),
+            (thermo.heterodimer(a, b)[0] for i, a in enumerate(vs) for b in vs[i + 1:]),
             default=float("-inf"),
         )),
     )
@@ -64,6 +62,6 @@ def structure_report(primer: str) -> list[str]:
     return out
 
 
-def dimer_dg(a: str, b: str) -> float:
+def dimer_dg(a: str, b: str, thermo: Thermo = DEFAULT_THERMO) -> float:
     """Lowest heterodimer ΔG (cal/mol) between any variant of a and any variant of b."""
-    return min(primer3.calc_heterodimer(x, y).dg for x in variants(a) for y in variants(b))
+    return min(thermo.heterodimer(x, y)[1] for x in variants(a) for y in variants(b))

@@ -54,3 +54,37 @@ def test_mafft_licence_ships_with_the_module(tmp_path: Path) -> None:
                    check=True, capture_output=True)
     text = (out / "app" / "engine" / "MAFFT-LICENSE.txt").read_text()
     assert "Kazutaka Katoh" in text and "Redistribution" in text
+
+
+def test_pyodide_is_served_from_the_site_and_matches_the_pinned_hashes(tmp_path: Path) -> None:
+    import hashlib
+
+    out = tmp_path / "_site"
+    subprocess.run([sys.executable, str(ROOT / "tools" / "build_site.py"), str(out)],
+                   check=True, capture_output=True)
+    pins = json.loads((ROOT / "tools" / "pyodide-0.27.7.json").read_text())["sha256"]
+    assert "pyodide.asm.wasm" in pins and len(pins) >= 9
+    for name, digest in pins.items():
+        data = (out / "app" / "engine" / "pyodide" / name).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == digest, name
+
+
+def test_no_page_or_script_loads_anything_from_a_third_party() -> None:
+    """The pages promise that nothing leaves the browser: no CDN, no font service.
+
+    Only resource loaders are checked (tags, CSS url(), importScripts), not links the reader may click.
+    """
+    import re
+
+    static = ROOT / "vhirprimerlab" / "web" / "static"
+    pages = [ROOT / "site" / "index.html", static / "index.html"]
+    loaders = (r'<(?:script|link|img|source|iframe|video)\b[^>]*\b(?:src|href)="https?://([\w.-]+)',
+               r"url\(\s*['\"]?https?://([\w.-]+)", r"importScripts\([^)]*https?://([\w.-]+)")
+    sources = [*pages, *(ROOT / "site").glob("*.css"), *static.glob("*.css"), static / "engine-worker.js"]
+    for path in sources:
+        for pattern in loaders:
+            for host in re.findall(pattern, path.read_text()):
+                raise AssertionError(f"{path.name} loads from {host}")
+    assert "cdn.jsdelivr.net" not in (static / "engine-worker.js").read_text()
+    for html in pages:
+        assert "Content-Security-Policy" in html.read_text(), html

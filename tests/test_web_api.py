@@ -211,3 +211,22 @@ def test_build_result_without_advice_has_an_empty_list(tmp_path: Path) -> None:
     (tmp_path / "out").mkdir()
     assert build_result(tmp_path, ["check"], 0)["advice"] == []
     assert build_result(tmp_path, ["-n", "4"], 1)["advice"] == []
+
+
+@needs_mafft
+def test_a_background_reaches_the_job_and_the_report(client: TestClient) -> None:
+    r = _post(client, "tile", {"amplicons": 2})
+    first = _wait(client, r.json()["id"])["result"]["rows"][0]["forward_seq"]
+    host = f">host\n{'ACGT' * 60}{first}{'TTGA' * 60}\n"
+    r = _post(client, "tile", {"amplicons": 2}, background_text=host)
+    assert r.status_code == 200, r.text
+    job = r.json()["id"]
+    assert _wait(client, job)["status"] == "done"
+    report = client.get(f"/api/jobs/{job}/files/report.txt").text
+    assert "1 background sequence(s)" in report
+    assert "VHIRPrimerLab_1_LEFT: 1 site(s) in the background sequences" in report
+
+
+def test_a_bad_background_is_refused_before_a_job_starts(client: TestClient) -> None:
+    r = _post(client, "tile", {"amplicons": 2}, background_text="nonsense")
+    assert r.status_code == 400 and "background" in r.json()["detail"].lower()

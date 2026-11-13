@@ -51,10 +51,58 @@ def test_same_mismatch_outside_reverse_window_ok() -> None:
     assert match_primer(SITE, COLS, mut(SITE, 19), "left", P).ok
 
 
-def test_gap_and_n_are_mismatches() -> None:
+def test_gap_is_a_mismatch_and_n_is_unknown() -> None:
     row = mut(mut(SITE, 2, to="-"), 6, to="N")
     r = match_primer(SITE, COLS, row, "right", P)
-    assert r.mismatches == 2
+    assert r.mismatches == 1 and r.ambiguous == 1 and r.ok
+
+
+def test_n_outside_the_window_is_not_a_mismatch() -> None:
+    r = match_primer(SITE, COLS, mut(SITE, 3, to="N"), "right", P)
+    assert r.ok and r.mismatches == 0 and r.ambiguous == 1
+
+
+def test_a_code_that_includes_the_primer_base_is_unknown_one_that_excludes_it_a_mismatch() -> None:
+    assert SITE[0] == "A"
+    compatible = match_primer(SITE, COLS, mut(SITE, 0, to="R"), "right", P)   # R = A or G
+    assert compatible.mismatches == 0 and compatible.ambiguous == 1
+    excluded = match_primer(SITE, COLS, mut(SITE, 0, to="Y"), "right", P)    # Y = C or T
+    assert excluded.mismatches == 1 and excluded.ambiguous == 0
+
+
+def test_a_code_inside_a_degenerate_primer_base_is_a_plain_match() -> None:
+    site = "R" + SITE[1:]                                                    # primer base A or G
+    row = mut(SITE, 0, to="R")
+    r = match_primer(site, COLS, row, "right", P)
+    assert r.mismatches == 0 and r.ambiguous == 0
+
+
+def test_unknown_bases_past_the_allowance_count_as_mismatches() -> None:
+    r = match_primer(SITE, COLS, mut(SITE, 0, 2, 4, to="N"), "right", P)      # allowance is 2
+    assert r.ambiguous == 2 and r.mismatches == 1 and r.ok
+
+
+def test_a_run_of_n_still_fails_the_primer() -> None:
+    r = match_primer(SITE, COLS, mut(SITE, 0, 1, 2, 3, 4, 5, to="N"), "right", P)
+    assert not r.ok and r.reason == "too many mismatches"
+
+
+def test_an_unknown_base_at_the_3_prime_end_fails_and_says_why() -> None:
+    r = match_primer(SITE, COLS, mut(SITE, 19, to="N"), "right", P)
+    assert not r.ok and r.reason == "ambiguous 3' base"
+    left = match_primer(SITE, COLS, mut(SITE, 0, to="N"), "left", P)
+    assert not left.ok and left.reason == "ambiguous 3' base"
+
+
+def test_a_real_3_prime_mismatch_keeps_its_own_reason() -> None:
+    row = mut(mut(SITE, 19), 18, to="N")
+    assert match_primer(SITE, COLS, row, "right", P).reason == "3' mismatch"
+
+
+def test_max_ambiguous_zero_counts_every_unknown_base_as_a_mismatch() -> None:
+    strict = ScoringParams(max_mismatches=2, window=5, max_ambiguous=0)
+    r = match_primer(SITE, COLS, mut(SITE, 3, to="N"), "right", strict)
+    assert r.mismatches == 1 and r.ambiguous == 0
 
 
 def test_insertion_counted() -> None:
@@ -102,3 +150,14 @@ def test_score_pair_both_fail() -> None:
     aln = Alignment(["s1", "s2"], [good, bad])
     cov = score_pair(SITE, COLS, rev_site, list(range(40, 60)), aln, P)
     assert cov.not_covered == {"s2": "fwd 3' mismatch; rev too many mismatches"}
+
+
+def test_a_sequence_with_an_n_inside_a_primer_site_is_still_covered() -> None:
+    rev_site = "TTGACCGTAGGCATCGATGC"
+    good = SITE + "A" * 20 + rev_site
+    draft = mut(SITE, 7, to="N") + "A" * 20 + mut(rev_site, 9, to="N")   # a draft assembly
+    ends_in_n = SITE[:19] + "N" + "A" * 20 + rev_site
+    aln = Alignment(["s1", "s2", "s3"], [good, draft, ends_in_n])
+    cov = score_pair(SITE, COLS, rev_site, list(range(40, 60)), aln, P)
+    assert cov.covered == ["s1", "s2"]
+    assert cov.not_covered == {"s3": "fwd ambiguous 3' base"}

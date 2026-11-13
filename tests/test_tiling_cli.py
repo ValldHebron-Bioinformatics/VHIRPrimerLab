@@ -115,3 +115,35 @@ def test_span_tiling_end_to_end(tmp_path) -> None:
     assert names[:2] == ["F_1_LEFT", "F_2_LEFT"] and names[-1] == "SH_LEFT"
     assert (out / "scheme.bed").read_text().count("SH_RIGHT") == 1
     assert "Target amplicon length: 700 bp" in (out / "report.txt").read_text()
+
+
+def test_report_has_a_specificity_section_and_a_clean_run_says_so(tiled) -> None:
+    _, _, out, _ = tiled
+    text = (out / "report.txt").read_text()
+    assert "Specificity\n-----------" in text
+    assert "No secondary binding sites found." in text
+
+
+def test_background_hit_is_reported_and_the_run_still_succeeds(tiled, tmp_path: Path) -> None:
+    _, aln, out, _ = tiled
+    first = read_tsv(out / "primers.tsv")[0]
+    assert first["name"] == "VHIRPrimerLab_1_LEFT"
+    host = tmp_path / "host.fasta"
+    write_fasta(host, [("host_gene", "ACGT" * 40 + first["sequence"] + "TTGA" * 40)])
+    out2 = tmp_path / "out2"
+    rc = main(["--aligned", str(aln), "-n", "5", "-o", str(out2), "--background", str(host)])
+    assert rc == 0
+    text = (out2 / "report.txt").read_text()
+    assert "background sequence(s)" in text
+    assert "VHIRPrimerLab_1_LEFT: 1 site(s) in the background sequences" in text
+    assert "No secondary binding sites found." not in text
+
+
+def test_an_unreadable_or_oversized_background_is_refused_before_the_run(tiled, tmp_path: Path) -> None:
+    _, aln, _, _ = tiled
+    assert main(["--aligned", str(aln), "-n", "5", "-o", str(tmp_path / "o"),
+                 "--background", str(tmp_path / "missing.fasta")]) == 1
+    big = tmp_path / "big.fasta"
+    write_fasta(big, [("big", "ACGT" * 2_600_000)])
+    assert main(["--aligned", str(aln), "-n", "5", "-o", str(tmp_path / "o2"),
+                 "--background", str(big)]) == 1

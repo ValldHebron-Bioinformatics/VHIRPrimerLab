@@ -9,4 +9,4 @@ Rebuild them with `bash tools/build_wasm.sh` (from the repository root).
 | `mafft-<program>.js`, `mafft-<program>.wasm` | MAFFT 7.526 `disttbfast`, `tbfast`, `dndpre` and `dvtditr`, the programs `mafft --auto` runs, as WebAssembly modules; factories `createMafft_<program>` | [MAFFT](https://mafft.cbrc.jp/alignment/software/), BSD (see `MAFFT-LICENSE.txt`) |
 
 The vhirprimerlab wheel and `manifest.json` are added at deploy time by `tools/build_site.py`.
-Pyodide and Biopython are loaded from `https://cdn.jsdelivr.net/pyodide/v0.27.7/full/`.
+Pyodide, Biopython, NumPy and micropip are downloaded at build time from the jsDelivr CDN, verified against the SHA-256 hashes in `tools/pyodide-0.27.7.json` and served from `app/engine/pyodide/`.

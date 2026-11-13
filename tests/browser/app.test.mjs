@@ -196,3 +196,33 @@ test('the loss note reads as a sentence and names the end it applies to', () => 
     'HA cannot be padded at either end, so up to 80 bases at its start and 88 at its end may '
     + 'fall outside the amplicons.');
 });
+
+// ---- the background FASTA: sequences the primers must not bind ------------------------------
+
+function backgroundFor({ level = 'advanced', background = { name: 'host.fa', text: '>h\nACGT\n' } } = {}) {
+  return new Function('advanced', 'state', `${lift('backgroundFor')}; return backgroundFor;`)(
+    () => level === 'advanced', { background });
+}
+
+test('a chosen background goes with tiling, genes and check runs in Advanced', () => {
+  for (const m of ['tile', 'genes', 'check']) assert.equal(backgroundFor()(m), '>h\nACGT\n', m);
+});
+
+test('the background stays home in Basic, where its field is hidden', () => {
+  assert.equal(backgroundFor({ level: 'basic' })('tile'), '');
+});
+
+test('region design never sends a background: it does not scan for secondary sites', () => {
+  assert.equal(backgroundFor()('regions'), '');
+});
+
+test('no background chosen sends nothing', () => {
+  assert.equal(backgroundFor({ background: null })('tile'), '');
+});
+
+test('a background is refused past the number of bases the engine scans, and not before', () => {
+  const problem = new Function('MAX_BACKGROUND_BASES', 'fmt',
+    `${lift('backgroundProblem')}; return backgroundProblem;`)(10_000_000, (n) => n.toLocaleString('en'));
+  assert.equal(problem({ lens: [5_000_000, 5_000_000] }), '');
+  assert.match(problem({ lens: [5_000_000, 5_000_001] }), /10,000,001 bases.*at most 10,000,000/);
+});

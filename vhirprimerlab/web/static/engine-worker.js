@@ -5,7 +5,8 @@
   'use strict';
 
   const PYODIDE_VERSION = '0.27.7';
-  const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+  // served from the site itself (tools/build_site.py downloads and verifies it), relative to this worker
+  const PYODIDE_URL = 'engine/pyodide/';
 
   // Python side: MAFFT as vhirprimerlab's "mafft" aligner, progress to the page, and one call that
   // checks a request exactly like the server (prepare_job), runs vhirprimerlab and builds the result.
@@ -45,10 +46,10 @@ register_aligner("mafft", _mafft)
 set_progress_reporter(lambda stage, fraction: vhirprimerlab_js.progress(stage, fraction))
 
 
-def run_job(mode, settings_json, fasta, primers):
+def run_job(mode, settings_json, fasta, primers, background=""):
     try:
         argv, files = prepare_job(mode, json.loads(settings_json), fasta.encode(), primers,
-                                  LIMITS, ["mafft"])
+                                  LIMITS, ["mafft"], background)
     except ValueError as exc:
         return json.dumps({"error": str(exc)}), b""
     job = Path("/job")
@@ -114,10 +115,11 @@ def run_job(mode, settings_json, fasta, primers):
     say('Ready', 1);
 
     return {
-      // job: {mode, settings, fasta, primers}; returns {error} or {result, files, zip}
+      // job: {mode, settings, fasta, primers, background}; returns {error} or {result, files, zip}
       run(job, onProgress) {
         progress = onProgress || (() => {});
-        const out = runJob(job.mode, JSON.stringify(job.settings || {}), job.fasta || '', job.primers || '');
+        const out = runJob(job.mode, JSON.stringify(job.settings || {}), job.fasta || '', job.primers || '',
+          job.background || '');
         try {
           const [text, zip] = out.toJs();
           return { ...JSON.parse(text), zip };
@@ -159,7 +161,7 @@ def run_job(mode, settings_json, fasta, primers):
           mafftFactories[name] = root[`createMafft_${name}`];
         }
         return createEngineCore({
-          loadPyodide: () => root.loadPyodide({ indexURL: PYODIDE_URL }),
+          loadPyodide: () => root.loadPyodide({ indexURL: new URL(PYODIDE_URL, root.location.href).href }),
           fetchBytes: async (rel) => {
             const r = await fetch(rel);
             if (!r.ok) throw new Error(`Failed to load ${rel} (${r.status})`);

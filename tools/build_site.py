@@ -4,19 +4,44 @@
 
 OUT_DIR receives site/ as is, vhirprimerlab/web/static/ under app/, and in app/engine/ the
 committed engine files (primer3 wheel, MAFFT module), a freshly built vhirprimerlab wheel and
-manifest.json, which tells the worker which wheels to load.
+manifest.json, which tells the worker which wheels to load. Pyodide itself (the runtime, the
+standard library and the Biopython/NumPy/micropip wheels) is downloaded from the jsDelivr CDN at
+build time, checked against the SHA-256 hashes pinned in tools/pyodide-<version>.json, and
+served from app/engine/pyodide/, so visitors never contact a third party.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PYODIDE = "0.27.7"
+
+
+def fetch_pyodide(dest: Path) -> None:
+    """Put the pinned Pyodide files in dest; every file must match its SHA-256 or the build stops."""
+    pins = json.loads((ROOT / "tools" / f"pyodide-{PYODIDE}.json").read_text())
+    cache = Path(os.environ.get("VHIRPRIMERLAB_PYODIDE_CACHE")
+                 or Path(tempfile.gettempdir()) / f"vhirprimerlab-pyodide-{PYODIDE}")
+    cache.mkdir(parents=True, exist_ok=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    for name, digest in pins["sha256"].items():
+        cached = cache / name
+        if not cached.is_file() or hashlib.sha256(cached.read_bytes()).hexdigest() != digest:
+            with urllib.request.urlopen(pins["base"] + name, timeout=120) as response:
+                data = response.read()
+            if hashlib.sha256(data).hexdigest() != digest:
+                raise SystemExit(f"{name} from {pins['base']} does not match the pinned SHA-256")
+            cached.write_bytes(data)
+        shutil.copyfile(cached, dest / name)
 
 
 def build(out: Path) -> None:
@@ -35,6 +60,7 @@ def build(out: Path) -> None:
     engine = app / "engine"
     subprocess.run([sys.executable, "-m", "pip", "wheel", "--quiet", "--no-deps",
                     "-w", str(engine), str(ROOT)], check=True)
+    fetch_pyodide(engine / "pyodide")
     vhirprimerlab = sorted(engine.glob("vhirprimerlab-*.whl"))
     primer3 = sorted(engine.glob("primer3_py-*.whl"))
     if len(vhirprimerlab) != 1 or len(primer3) != 1:

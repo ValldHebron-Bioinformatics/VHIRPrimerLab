@@ -124,3 +124,16 @@ def test_amplicon_len_must_exceed_overlap() -> None:
                              "-o", "out"])
     with pytest.raises(PipelineError, match="--amplicon-len must be greater than --overlap"):
         validate_args(args)
+
+
+def test_negative_max_ambiguous_is_refused(family: Path, tmp_path: Path) -> None:
+    rc = main(["-i", str(family), "-o", str(tmp_path / "o"), *AMP, "--max-ambiguous", "-1"])
+    assert rc == 1
+
+
+def test_check_refuses_a_negative_max_ambiguous() -> None:
+    from vhirprimerlab.cli import build_check_parser, check_check_params
+
+    ns = build_check_parser().parse_args(["-i", "x.fa", "--primers", "p.tsv", "-o", "out", "--max-ambiguous", "-1"])
+    with pytest.raises(PipelineError, match="max-ambiguous"):
+        check_check_params(ns)
