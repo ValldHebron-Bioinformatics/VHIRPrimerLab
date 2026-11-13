@@ -399,3 +399,53 @@ def test_tile_spans_keeps_distinct_names(family) -> None:
     names = [a.name for a in res.amplicons]
     assert len(set(names)) == len(names)
     assert len({n for a in names for n in primer_names(a)}) == 2 * len(names)
+
+
+# --- pools of overlapping spans ----------------------------------------------------
+
+def _same_pool_overlaps(amplicons) -> list[tuple[str, str]]:
+    return [(a.name, b.name) for i, a in enumerate(amplicons) for b in amplicons[i + 1:]
+            if a.pool == b.pool and a.fwd.start <= b.rev.end and b.fwd.start <= a.rev.end]
+
+
+def test_assign_pools_flips_a_span_to_avoid_a_clash() -> None:
+    # span A alternates pools 1, 2; span B's first amplicon overlaps A's first, so with the
+    # numbering's own pools (B_1 = pool 1) they would share a tube: B starts in pool 2 instead
+    pools, warnings = tiling.assign_pools([
+        [("A_1", 0, 100), ("A_2", 200, 300)],
+        [("B_1", 50, 150), ("B_2", 400, 500)],
+    ])
+    assert pools == [1, 2, 2, 1] and warnings == []
+
+
+def test_assign_pools_keeps_the_numbering_when_nothing_overlaps() -> None:
+    pools, warnings = tiling.assign_pools([[("A_1", 0, 100), ("A_2", 150, 250)], [("B", 400, 500)]])
+    assert pools == [1, 2, 1] and warnings == []
+
+
+def test_assign_pools_warns_about_an_unavoidable_clash() -> None:
+    # three amplicons that overlap one another cannot be split over two pools
+    pools, warnings = tiling.assign_pools([[("A", 0, 100)], [("B", 50, 150)], [("C", 60, 160)]])
+    assert len(warnings) == 1 and "C" in warnings[0] and "same pool" in warnings[0]
+
+
+def test_overlapping_regions_never_share_a_pool_silently(family) -> None:
+    aln, cons, stats, cmap = family
+    spans = [Region("F", 1001, 3000), Region("G", 2001, 3000)]
+    res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
+    clashes = _same_pool_overlaps(res.amplicons)
+    assert clashes, "this scheme cannot be two-coloured, so the test needs a clash to report"
+    assert len(res.pool_warnings) == len(clashes)
+    assert all(a in w and b in w for (a, b), w in zip(clashes, res.pool_warnings))
+
+
+def test_dimers_are_checked_in_the_pools_the_amplicons_are_in(family, monkeypatch) -> None:
+    aln, cons, stats, cmap = family
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -20_000)
+    res = tile_spans(aln, cons, stats, cmap, _span_params(),
+                     [Region("F", 1001, 3000), Region("G", 2001, 3000)])
+    pool_of = {a.name: a.pool for a in res.amplicons}
+    for warning in res.dimer_warnings:
+        pool = int(warning.split(":")[0].removeprefix("pool "))
+        names = [n for n in pool_of if n + "_LEFT" in warning or n + "_RIGHT" in warning]
+        assert names and all(pool_of[n] == pool for n in names), warning

@@ -223,19 +223,20 @@ def _key(c: PrimerCandidate) -> Key:
     return c.strand, c.start, c.length
 
 
-def _dimer_pairs(path: Path_, names: list[str]) -> list[
+def _dimer_pairs(path: Path_, names: list[str], pools: list[int] | None = None) -> list[
         tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
     """Primer pairs in one pool whose worst variant pair has ΔG below DIMER_DG.
 
-    Amplicon k (1-based) is in pool 1 when k is odd, pool 2 when even, and is named
-    names[k - 1]. Every variant of a degenerate primer is checked against every
-    variant of the other primer.
+    Amplicon k (1-based) is named names[k - 1] and is in pools[k - 1]; without pools,
+    pool 1 when k is odd and pool 2 when even. Every variant of a degenerate primer is
+    checked against every variant of the other primer.
     """
+    pools = pools or [1 if k % 2 else 2 for k in range(1, len(path) + 1)]
     found = []
     for pool in (1, 2):
         oligos: list[tuple[str, PrimerCandidate]] = []
-        for k, ((f, r), name) in enumerate(zip(path, names), start=1):
-            if (1 if k % 2 else 2) == pool:
+        for (f, r), name, amp_pool in zip(path, names, pools):
+            if amp_pool == pool:
                 left, right = primer_names(name)
                 oligos += [(left, f), (right, r)]
         for i, (name_a, a) in enumerate(oligos):
@@ -246,9 +247,46 @@ def _dimer_pairs(path: Path_, names: list[str]) -> list[
     return found
 
 
-def _dimers(path: Path_, names: list[str]) -> list[str]:
+def _dimers(path: Path_, names: list[str], pools: list[int] | None = None) -> list[str]:
     return [f"pool {pool}: {na} × {nb} ΔG {dg / 1000:.1f} kcal/mol"
-            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names)]
+            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names, pools)]
+
+
+def assign_pools(spans: list[list[tuple[str, int, int]]]) -> tuple[list[int], list[str]]:
+    """Pools (1 or 2) of the amplicons of several spans, and a warning for each clash left.
+
+    Amplicons are numbered across the scheme and alternate pools by that number, which keeps
+    neighbours of a span apart. Spans that overlap one another (neighbouring genes, say) can
+    put overlapping amplicons in one tube, where each one's primers prime the other's
+    product. A whole span is therefore flipped to the other parity when that overlaps
+    fewer same-pool amplicons; a clash no choice avoids (three amplicons that overlap
+    one another cannot be split over two pools) is reported. Each span is (name, start, end).
+    """
+    placed: list[tuple[str, int, int, int]] = []  # name, start, end, pool
+
+    def clashes(candidate: list[tuple[str, int, int, int]]) -> list[tuple[str, str, int]]:
+        found = []
+        for name, start, end, pool in candidate:
+            for other, o_start, o_end, o_pool in placed:
+                shared = min(end, o_end) - max(start, o_start) + 1
+                if o_pool == pool and shared > 0:
+                    found.append((other, name, shared))
+        return found
+
+    warnings: list[str] = []
+    for span in spans:
+        options = []
+        for flip in (0, 1):
+            candidate = [(name, start, end, 1 + ((len(placed) + j + flip) % 2))
+                         for j, (name, start, end) in enumerate(span)]
+            found = clashes(candidate)
+            options.append(((len(found), sum(c[2] for c in found)), candidate, found))
+        _, candidate, found = min(options, key=lambda o: o[0])  # the numbering's own pools win ties
+        warnings += [f"{a} and {b} are in the same pool and their amplicons overlap by {n} bp, so "
+                     f"the primers of one can prime the other's product; tile overlapping "
+                     f"regions in separate runs" for a, b, n in found]
+        placed += candidate
+    return [pool for *_, pool in placed], warnings
 
 
 def _worst_coverage(path: Path_) -> int:
@@ -528,6 +566,7 @@ def tile_spans(
     amplicons: list[Amplicon] = []
     path: Path_ = []
     names: list[str] = []
+    extents: list[list[tuple[str, int, int]]] = []
     for i, span in enumerate(spans):
         lo, length = cmap.region_to_included(span)
         n = amplicons_for(length, params.amplicon_len, params.overlap)
@@ -538,13 +577,14 @@ def tile_spans(
         except PipelineError as e:
             raise PipelineError(f"Region '{span.name}': {e}") from e
         parts.append(part)
+        extents.append([])
         for k, a in enumerate(part.amplicons, start=1):
             name = span.name if n == 1 else f"{span.name}_{k}"
             index = len(amplicons) + 1
             last = k == len(part.amplicons)
             amplicons.append(dataclasses.replace(
-                a, index=index, name=name, pool=1 if index % 2 else 2,
-                overlap_next=None if last else a.overlap_next))
+                a, index=index, name=name, overlap_next=None if last else a.overlap_next))
+            extents[-1].append((name, a.fwd.start, a.rev.end))
             path.append((a.fwd, a.rev))
             names.append(name)
     # A span of several amplicons names them NAME_1, NAME_2, ...; a span of one keeps its own
@@ -558,9 +598,14 @@ def tile_spans(
             f"Two amplicons would both be called {', '.join(repeated)}, so their primers could "
             "not be told apart in primers.tsv or scheme.bed: rename one of the regions"
         )
+    pools, pool_warnings = assign_pools(extents)
+    amplicons = [dataclasses.replace(a, pool=pool) for a, pool in zip(amplicons, pools)]
+    for warning in pool_warnings:
+        log.warning(warning)
     ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
     advice = [dataclasses.replace(a, span=span.name)
               for span, part in zip(spans, parts) for a in part.edge_advice]
     return TilingResult(amplicons, parts[0].geometry,
                         sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
-                        _dimers(path, names), ends, spanned=True, edge_advice=advice)
+                        _dimers(path, names, pools), ends, spanned=True, edge_advice=advice,
+                        pool_warnings=pool_warnings)

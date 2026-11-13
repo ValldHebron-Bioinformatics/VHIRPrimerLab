@@ -452,6 +452,9 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]
     out += ["", "Primer dimers", "-------------"]
     out += [f"  {w}" for w in res.dimer_warnings] or ["none"]
+    if res.pool_warnings:
+        out += ["", "Overlapping amplicons in one pool", "---------------------------------"]
+        out += [f"  {w}" for w in res.pool_warnings]
     if res.edge_advice:
         out += ["", "Edge advice", "-----------",
                 "  The result above is what you asked for; these re-runs would do better:"]

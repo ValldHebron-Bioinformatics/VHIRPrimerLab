@@ -337,6 +337,7 @@ class TilingResult:
     uncovered_ends: tuple[int, int]  # reference bases outside the first / last insert
     spanned: bool = False  # tiled chosen spans, not the whole genome
     edge_advice: list[EdgeAdvice] = field(default_factory=list)
+    pool_warnings: list[str] = field(default_factory=list)  # same-pool amplicons that overlap
 
 
 @dataclass
