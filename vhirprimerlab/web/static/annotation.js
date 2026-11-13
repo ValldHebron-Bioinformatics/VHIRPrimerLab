@@ -14,6 +14,10 @@ const CACHE_PREFIX = `${CACHE_ROOT}v3.`;
 // instead of cached.
 const CACHE_MAX_BASES = 100_000;
 const RETRY_WAITS = [1000, 3000];   // ms before the first and second retry
+const REQUEST_TIMEOUT = 30_000;     // ms for one request; a stalled connection is retried like a 5xx
+// NCBI asks automated clients to say who they are, so that it can reach out before it blocks one.
+const TOOL = 'vhirprimerlab';
+const withTool = (url) => `${url}${url.includes('?') ? '&' : '?'}tool=${TOOL}`;
 
 // What a user can click to ask for primers. rRNA and the other RNAs are here because a
 // parasite record is a marker locus (18S, 16S) that carries nothing else.
@@ -259,7 +263,7 @@ async function getWithRetry(fetch, url, wait) {
   for (let attempt = 0; ; attempt++) {
     let response;
     try {
-      response = await fetch(url);
+      response = await fetch(withTool(url), { signal: AbortSignal.timeout(REQUEST_TIMEOUT) });
     } catch (cause) {
       throw noResponse(cause);
     }

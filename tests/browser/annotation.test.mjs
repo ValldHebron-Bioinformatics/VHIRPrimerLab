@@ -195,7 +195,7 @@ test('the efetch request goes to the accession', async () => {
   const fetch = route(async (u) => { urls.push(u); return { ok: true, text: async () => hmpvXml }; });
   await fetchAnnotation('NC_039199.1', { fetch, storage: null });
   assert.deepEqual(urls, ['https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi'
-    + '?db=nuccore&rettype=gbc&retmode=xml&id=NC_039199.1']);
+    + '?db=nuccore&rettype=gbc&retmode=xml&id=NC_039199.1&tool=vhirprimerlab']);
 });
 
 test('the esummary request asks for json', async () => {
@@ -203,7 +203,7 @@ test('the esummary request asks for json', async () => {
   const fetch = async (u) => { url = u; return { ok: true, json: async () => ({ result: { uids: ['7'], 7: { slen: 1453 } } }) }; };
   assert.equal(await fetchRecordLength('M54878.1', { fetch }), 1453);
   assert.equal(url, 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'
-    + '?db=nuccore&retmode=json&id=M54878.1');
+    + '?db=nuccore&retmode=json&id=M54878.1&tool=vhirprimerlab');
 });
 
 test('a second request is served from the cache, whatever the accession case', async () => {
@@ -505,4 +505,16 @@ test('a record that came without its bases is not cached', async () => {
   assert.equal(again.sequence, 'ACGTACGTAC');   // asked again, and cacheable this time
   assert.equal(data.size, 1);
   assert.equal(calls, 1);
+});
+
+test('every NCBI request names the tool and can time out', async () => {
+  const calls = [];
+  const inner = route(async () => ({ ok: true, status: 200, text: async () => hmpvXml }), 10_000);
+  const fetch = async (url, init) => { calls.push([url, init]); return inner(url); };
+  await fetchAnnotation('NC_039199.1', { fetch, storage: null });
+  assert.ok(calls.length > 0);
+  for (const [url, init] of calls) {
+    assert.match(url, /[?&]tool=vhirprimerlab(&|$)/);
+    assert.ok(init && init.signal, 'a timeout signal');
+  }
 });

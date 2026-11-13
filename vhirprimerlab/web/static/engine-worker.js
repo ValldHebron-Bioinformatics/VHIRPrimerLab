@@ -5,7 +5,8 @@
   'use strict';
 
   const PYODIDE_VERSION = '0.27.7';
-  const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+  // served from the site itself (tools/build_site.py downloads and verifies it), relative to this worker
+  const PYODIDE_URL = 'engine/pyodide/';
 
   // Python side: MAFFT as vhirprimerlab's "mafft" aligner, progress to the page, and one call that
   // checks a request exactly like the server (prepare_job), runs vhirprimerlab and builds the result.
@@ -159,7 +160,7 @@ def run_job(mode, settings_json, fasta, primers):
           mafftFactories[name] = root[`createMafft_${name}`];
         }
         return createEngineCore({
-          loadPyodide: () => root.loadPyodide({ indexURL: PYODIDE_URL }),
+          loadPyodide: () => root.loadPyodide({ indexURL: new URL(PYODIDE_URL, root.location.href).href }),
           fetchBytes: async (rel) => {
             const r = await fetch(rel);
             if (!r.ok) throw new Error(`Failed to load ${rel} (${r.status})`);

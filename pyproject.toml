@@ -22,7 +22,7 @@ vhirprimerlab = "vhirprimerlab.cli:main"
 packages = ["vhirprimerlab", "vhirprimerlab.web"]
 
 [tool.setuptools.package-data]
-"vhirprimerlab.web" = ["static/*"]
+"vhirprimerlab.web" = ["static/*", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
