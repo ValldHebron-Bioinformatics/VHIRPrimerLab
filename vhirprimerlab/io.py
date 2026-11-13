@@ -39,6 +39,7 @@ def _degeneracy(fwd: str, rev: str) -> list[int]:
 
 if TYPE_CHECKING:
     from vhirprimerlab.coords import CoordMap
+    from vhirprimerlab.specificity import SpecificityReport
 
 log = logging.getLogger(__name__)
 
@@ -428,6 +429,37 @@ def advice_line(adv: EdgeAdvice) -> str:
             f"{adv.edge_after:.1f} %: add --max-{adv.end}-loss {adv.limit}")
 
 
+def specificity_lines(spec: SpecificityReport, params: dict[str, object]) -> list[str]:
+    """The report's Specificity section: secondary binding sites and the products they could make."""
+    rule = (f"a site has at most {params.get('max_mismatches', 2)} mismatches and the last "
+            f"{params.get('three_prime_window', 5)} bases exact")
+    scanned = f" and {spec.n_background} background sequence(s)" if spec.n_background else ""
+    out = [f"  Both strands of every input sequence{scanned} were scanned for other places each primer "
+           f"could bind ({rule})."]
+    if spec.clean:
+        return out + ["  No secondary binding sites found."]
+    for p in spec.primers:
+        if p.off_target_sites:
+            out.append(f"  {p.name}: {p.off_target_sites} secondary site(s) in {p.sequences} "
+                       f"sequence(s), the closest with {p.fewest_mismatches} mismatch(es)")
+        if p.background_sites:
+            out.append(f"  {p.name}: {p.background_sites} site(s) in the background sequences")
+    if spec.products:
+        out.append("  Unintended products (two primers of one pool facing each other, at least one "
+                   "at a secondary site):")
+        for pr in spec.products:
+            size = (f"{pr.length_min} bp" if pr.length_min == pr.length_max
+                    else f"{pr.length_min}-{pr.length_max} bp")
+            secondary = [f"{n} at a secondary site" for n, flag in
+                         ((pr.fwd, pr.fwd_secondary), (pr.rev, pr.rev_secondary)) if flag]
+            where = "background sequence" if pr.background else "sequence(s)"
+            out.append(f"    pool {pr.pool}: {pr.fwd} × {pr.rev}, {size}, in {pr.sequences} {where} "
+                       f"(e.g. {pr.example}); {', '.join(secondary)}")
+        if spec.n_products > len(spec.products):
+            out.append(f"    ... and {spec.n_products - len(spec.products)} more")
+    return out
+
+
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
@@ -452,6 +484,8 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]
     out += ["", "Primer dimers", "-------------"]
     out += [f"  {w}" for w in res.dimer_warnings] or ["none"]
+    if res.specificity is not None:
+        out += ["", "Specificity", "-----------"] + specificity_lines(res.specificity, report.params)
     if res.pool_warnings:
         out += ["", "Overlapping amplicons in one pool", "---------------------------------"]
         out += [f"  {w}" for w in res.pool_warnings]

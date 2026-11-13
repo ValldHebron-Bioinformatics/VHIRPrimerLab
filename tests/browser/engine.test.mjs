@@ -45,6 +45,9 @@ test("tiles the example genomes like the command line", () => {
   assert.ok(stages.includes("aligning") && stages.includes("done"));
   assert.ok(files["primers.tsv"] && files["scheme.bed"] && files["report.txt"] && files["alignment.fasta"]);
   assert.equal(String.fromCharCode(zip[0], zip[1]), "PK");
+  // the secondary-site scan runs in the browser too
+  assert.ok(stages.includes("checking specificity"));
+  assert.match(files["report.txt"], /Specificity\n-+\n[^\n]*scanned[^\n]*\n  No secondary binding sites found\./);
 
   // the command line on the alignment the browser produced gives the same primers
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vhirprimerlab-native-"));

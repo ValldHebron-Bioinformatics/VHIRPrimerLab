@@ -47,6 +47,7 @@ from vhirprimerlab.models import (
     DesignParams,
     LengthFilterResult,
     PipelineError,
+    primer_names,
     Record,
     Region,
     RegionResult,
@@ -59,6 +60,7 @@ from vhirprimerlab.models import (
 from vhirprimerlab.ranking import failure_summary, rank
 from vhirprimerlab.regions import resolve_regions
 from vhirprimerlab.scoring import score_pair
+from vhirprimerlab.specificity import Oligo, check_specificity
 from vhirprimerlab.tiling import tile, tile_spans
 
 log = logging.getLogger("vhirprimerlab")
@@ -141,6 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-ambiguous", type=int, default=2,
                    help="N or other ambiguous bases in a sequence forgiven per primer (not at the "
                         "3' end); 0 counts each as a mismatch")
+    p.add_argument("--background", type=Path,
+                   help="nucleotide FASTA of sequences the primers must not bind (a host genome, "
+                        "co-circulating viruses; up to 10 Mb), scanned when tiling")
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
@@ -414,6 +419,45 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     return EXIT_BELOW_THRESHOLD if failed else EXIT_OK
 
 
+MAX_BACKGROUND_BASES = 10_000_000
+
+
+def _load_background(path: Path | None) -> list[tuple[str, str]]:
+    """The --background sequences, refused when too large to scan in reasonable time."""
+    if path is None:
+        return []
+    records = load_fasta(path)
+    total = sum(len(r.seq) for r in records)
+    if total > MAX_BACKGROUND_BASES:
+        raise PipelineError(
+            f"--background holds {total:,} bases; at most {MAX_BACKGROUND_BASES:,} are scanned. "
+            "Keep the sequences the primers could really meet (the host's transcriptome rather "
+            "than its genome, for instance)")
+    return [(r.id, r.seq) for r in records]
+
+
+def _specificity(result, aln, params, background):
+    """Scan the primers of a tiling for secondary binding sites and unintended products."""
+    oligos = []
+    for a in result.amplicons:
+        left, right = primer_names(a.name)
+        oligos += [Oligo(left, a.pool, a.fwd.seq, "+", a.fwd.cols[0], a.fwd.cols[-1]),
+                   Oligo(right, a.pool, a.rev.seq, "-", a.rev.cols[0], a.rev.cols[-1])]
+    return check_specificity(oligos, aln, params.scoring, result.geometry.len_max, background)
+
+
+def _specificity_log(spec) -> list[str]:
+    if spec.clean:
+        return []
+    names = [p.name for p in spec.primers if p.off_target_sites or p.background_sites]
+    lines = [f"Secondary binding sites found for {len(names)} primer(s): {', '.join(names)}"
+             if names else "Secondary binding sites found"]
+    if spec.n_products:
+        lines.append(f"{spec.n_products} possible unintended product(s); see the Specificity "
+                     "section of report.txt")
+    return lines
+
+
 def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     check_tiling_params(a)
     progress = make_progress(a.progress_file)
@@ -422,6 +466,7 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
     for span in spans or []:
         check_span(span, inp.ref_len)
     progress("aligning", 0.05)
+    background = _load_background(a.background)  # before the long steps, so a bad file fails fast
     al = _align_inputs(a, inp)
     params = TilingParams(
         n_amplicons=a.amplicons if a.amplicons is not None else 1,  # spans work it out
@@ -437,6 +482,10 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         result = tile_spans(al.aln, al.cons, al.stats, al.cmap, params, spans, progress)
     else:
         result = tile(al.aln, al.cons, al.stats, al.cmap, params, progress)
+    progress("checking specificity", 0.92)
+    result.specificity = _specificity(result, al.aln, params, background)
+    for line in _specificity_log(result.specificity):
+        log.warning("%s", line)
     progress("writing", 0.95)
     write_tiling_tsv(result, al.cmap, a.outdir / "amplicons.tsv")
     write_order_tsv(tiling_order(result), a.outdir / "primers.tsv")

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:  # specificity imports this module
+    from vhirprimerlab.specificity import SpecificityReport
 
 
 class PipelineError(Exception):
@@ -344,6 +347,7 @@ class TilingResult:
     spanned: bool = False  # tiled chosen spans, not the whole genome
     edge_advice: list[EdgeAdvice] = field(default_factory=list)
     pool_warnings: list[str] = field(default_factory=list)  # same-pool amplicons that overlap
+    specificity: SpecificityReport | None = None  # secondary binding sites; None when not run
 
 
 @dataclass

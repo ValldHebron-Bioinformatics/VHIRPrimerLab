@@ -47,7 +47,7 @@ so overlapping products never share a tube. It writes:
   sequence`), ready for amplicon-sequencing pipelines.
 - `report.txt`: settings, input and alignment statistics, the tiling (each amplicon with both
   primers: sequence, length, Tm, GC % and degenerate bases), bases left uncovered at the genome
-  ends, possible primer dimers within a pool, and the log.
+  ends, possible primer dimers within a pool, a specificity check (see below) and the log.
 - `alignment.fasta`: the alignment used.
 
 ### How the amplicons are chosen
@@ -109,6 +109,7 @@ span, and primer dimers are checked across the whole scheme.
 | `--gc-min/--gc-max` | 40 / 60 | primer GC % |
 | `--max-mismatches` | 2 | max mismatches per primer |
 | `--max-ambiguous` | 2 | `N`/ambiguous bases in a sequence forgiven per primer (not at the 3′ end) |
+| `--background` | none | FASTA of sequences the primers must not bind (up to 10 Mb), scanned for secondary sites |
 | `--three-prime-window` | 5 | 3′ bases that must match exactly |
 | `--no-degenerate` | off | plain primers only |
 | `--max-degeneracy` | 4 | max variants per degenerate primer |
@@ -286,6 +287,22 @@ For degenerate primers, GC % is the average over all variants (degenerate bases 
 while it stays within `--gc-min`/`--gc-max`), and `*_tm_range` gives the
 lowest and highest Tm over all variants. `*_degenerate_bases` counts the
 IUPAC positions and `*_variants` the distinct oligos the primer stands for.
+
+### Specificity check
+
+Each tiling run scans every primer against **both strands of every input sequence** for places
+other than its own site where it could bind, using the matching rule below (at most
+`--max-mismatches` mismatches, the last `--three-prime-window` bases exact). `report.txt` lists, per
+primer, how many secondary sites there are and in how many sequences, and **unintended products**:
+two primers of one pool whose sites face each other no further apart than the longest allowed
+amplicon, where at least one of the two sites is secondary. A clean run says so.
+
+`--background FASTA` adds sequences the primers must not bind: a co-circulating virus, a host
+transcript. Every site found there counts as secondary. Keep it to what the primers could really
+meet; more than 10 Mb is refused, because the scan reads every base of it (about 5 MB took a few
+seconds). Only the sequences you give are scanned: this is not a search of a whole database, so a
+clean report does not rule out binding elsewhere, and a site is judged by mismatches alone, not by
+its stability or the product's yield.
 
 ### Matching rules (all modes)
 
