@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.synthetic import make_genome_family
-from vhirprimerlab import structure, tiling
+from vhirprimerlab import thermo, tiling
 from vhirprimerlab.conservation import build_consensus, score_columns
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.io import alignment_from_records
@@ -175,8 +175,8 @@ def test_n_too_large(family) -> None:
 
 
 def test_dimer_warning_format(family, monkeypatch) -> None:
-    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
-                        lambda a, b: SimpleNamespace(dg=-12000.0, tm=0.0))
+    monkeypatch.setattr(thermo.primer3, "calc_heterodimer",
+                        lambda a, b, **_: SimpleNamespace(dg=-12000.0, tm=0.0))
     res = tile(*family, PARAMS)
     assert res.dimer_warnings
     assert res.dimer_warnings[0].startswith("pool 1: VHIRPrimerLab_1_LEFT × ")
@@ -184,8 +184,8 @@ def test_dimer_warning_format(family, monkeypatch) -> None:
 
 
 def test_dimer_warning_quotes_the_amplicon_names(family, monkeypatch) -> None:
-    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
-                        lambda a, b: SimpleNamespace(dg=-12000.0, tm=0.0))
+    monkeypatch.setattr(thermo.primer3, "calc_heterodimer",
+                        lambda a, b, **_: SimpleNamespace(dg=-12000.0, tm=0.0))
     monkeypatch.setattr(tiling, "_pair_name", lambda k: f"GENE_{k}")
     res = tile(*family, PARAMS)
     assert res.amplicons[0].name == "GENE_1"
@@ -244,7 +244,7 @@ def _dimer_setup(alt_bits: int):
 NAMES = ["VHIRPrimerLab_1"]
 
 
-def _c_sticks(a: str, b: str) -> float:
+def _c_sticks(a: str, b: str, thermo=None) -> float:
     return -12000.0 if "C" in a + b else -3000.0
 
 
@@ -319,7 +319,7 @@ def test_tile_spans_overlaps_inside_a_span_only(family) -> None:
 
 def test_tile_spans_checks_dimers_across_spans(family, monkeypatch) -> None:
     aln, cons, stats, cmap = family
-    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -20_000)
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b, t=None: -20_000)
     spans = [Region("F", 1001, 3000), Region("SH", 4001, 4600)]
     res = tile_spans(aln, cons, stats, cmap, _span_params(), spans)
     # F_2 and SH share pool 2, so only a scheme-wide check can pair them
@@ -441,7 +441,7 @@ def test_overlapping_regions_never_share_a_pool_silently(family) -> None:
 
 def test_dimers_are_checked_in_the_pools_the_amplicons_are_in(family, monkeypatch) -> None:
     aln, cons, stats, cmap = family
-    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -20_000)
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b, t=None: -20_000)
     res = tile_spans(aln, cons, stats, cmap, _span_params(),
                      [Region("F", 1001, 3000), Region("G", 2001, 3000)])
     pool_of = {a.name: a.pool for a in res.amplicons}

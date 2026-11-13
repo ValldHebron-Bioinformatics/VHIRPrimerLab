@@ -154,6 +154,20 @@
               <div class="field" data-modes="tile regions genes"><label for="max_degeneracy">Max variants per primer</label><input type="number" id="max_degeneracy" name="max_degeneracy" autocomplete="off" data-setting="max_degeneracy" value="4" min="1"></div>
               <div class="field" data-modes="tile regions check genes"><label for="aligner">Aligner</label><select id="aligner" name="aligner" data-setting="aligner"><option value="mafft">MAFFT</option><option value="muscle">MUSCLE</option></select></div>
             </div>
+            <fieldset class="field conditions" data-modes="tile regions check genes">
+              <legend>Reaction conditions</legend>
+              <p class="help" id="conditions-help">The buffer every melting temperature and primer structure is calculated for. The defaults are primer3's.</p>
+              <div class="grid-fields">
+                <div class="field"><label for="mv_conc">Na⁺/K⁺ (mM)</label><input type="number" id="mv_conc" name="mv_conc" autocomplete="off" data-setting="mv_conc" value="50" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dv_conc">Mg²⁺ (mM)</label><input type="number" id="dv_conc" name="dv_conc" autocomplete="off" data-setting="dv_conc" value="1.5" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dntp_conc">Each dNTP (mM)</label><input type="number" id="dntp_conc" name="dntp_conc" autocomplete="off" data-setting="dntp_conc" value="0.6" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="dna_conc">Primer (nM)</label><input type="number" id="dna_conc" name="dna_conc" autocomplete="off" data-setting="dna_conc" value="50" min="0" step="any" aria-describedby="conditions-help"></div>
+                <div class="field"><label for="tm_method">Tm formula</label><select id="tm_method" name="tm_method" data-setting="tm_method"><option value="santalucia">SantaLucia</option><option value="breslauer">Breslauer</option></select></div>
+                <div class="field"><label for="salt_correction">Salt correction</label><select id="salt_correction" name="salt_correction" data-setting="salt_correction"><option value="santalucia">SantaLucia</option><option value="owczarzy">Owczarzy</option><option value="schildkraut">Schildkraut</option></select></div>
+                <div class="field"><label for="structure_temp">Hairpin/dimer at (°C)</label><input type="number" id="structure_temp" name="structure_temp" autocomplete="off" data-setting="structure_temp" value="37" min="0" max="100" step="any"></div>
+                <div class="field"><label for="max_dimer_dg">Dimer if ΔG below (kcal/mol)</label><input type="number" id="max_dimer_dg" name="max_dimer_dg" autocomplete="off" data-setting="max_dimer_dg" value="-9" max="-0.1" step="any"></div>
+              </div>
+            </fieldset>
             <label class="check" data-modes="tile"><input type="checkbox" id="degenerate" checked> Allow degenerate bases (IUPAC) where they rescue sequences</label>
             <label class="check" data-modes="regions"><input type="checkbox" id="allow_degenerate"> Allow degenerate bases (IUPAC) where they rescue sequences</label>
           </div>

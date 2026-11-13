@@ -114,6 +114,10 @@ span, and primer dimers are checked across the whole scheme.
 | `--no-degenerate` | off | plain primers only |
 | `--max-degeneracy` | 4 | max variants per degenerate primer |
 | `--min-coverage` | 95 | coverage target (%) |
+| `--mv-conc/--dv-conc/--dntp-conc/--dna-conc` | 50 / 1.5 / 0.6 / 50 | reaction buffer for every Tm and structure calculation: Na⁺/K⁺, Mg²⁺ and each dNTP in mM, oligo in nM |
+| `--tm-method`, `--salt-correction` | santalucia, santalucia | Tm formula (`santalucia`, `breslauer`) and salt correction (`santalucia`, `owczarzy`, `schildkraut`) |
+| `--structure-temp` | 37 | temperature (°C) at which hairpin and dimer ΔG are evaluated |
+| `--max-dimer-dg` | -9 | two primers of a pool whose dimer ΔG (kcal/mol) is below this form a dimer |
 | `-i`/`--aligned`, `--aligner`, `--reference-id`, `--length-tolerance`, `--outlier-action`, `-v` | | as below |
 
 Exit codes: `0` every amplicon reaches `--min-coverage`, `2` at least one does not (outputs are
@@ -303,6 +307,23 @@ meet; more than 10 Mb is refused, because the scan reads every base of it (about
 seconds). Only the sequences you give are scanned: this is not a search of a whole database, so a
 clean report does not rule out binding elsewhere, and a site is judged by mismatches alone, not by
 its stability or the product's yield.
+
+### Reaction conditions
+
+Every melting temperature, hairpin, self-dimer and primer-dimer calculation is made for one set of
+conditions, given by `--mv-conc`, `--dv-conc`, `--dntp-conc`, `--dna-conc`, `--tm-method` and
+`--salt-correction` (and, for the structure calculations, `--structure-temp`). The defaults are
+primer3-py's own: 50 mM Na⁺/K⁺, 1.5 mM Mg²⁺, 0.6 mM of each dNTP and 50 nM oligo with the
+SantaLucia formula and salt correction. They are written out in `vhirprimerlab/thermo.py`, so a
+different primer3-py version cannot change them silently. Set them to your master mix: Mg²⁺ and
+dNTPs move Tm by several degrees, and `--tm-min/--tm-opt/--tm-max` are Tm *at these conditions*.
+The same options work in `check` mode and in the web app (Advanced, "Reaction conditions"). The
+conditions in force are listed under Settings in `report.txt`.
+
+`--max-dimer-dg` is the ΔG below which two primers of a pool count as a dimer, at
+`--structure-temp`. The default (-9 kcal/mol at 37 °C) is primer3's usual rule of thumb, and is
+stricter than the annealing temperature of a PCR would suggest, so a dimer reported at 37 °C is a
+risk to check, not proof that the pool fails.
 
 ### Matching rules (all modes)
 

@@ -61,6 +61,7 @@ from vhirprimerlab.ranking import failure_summary, rank
 from vhirprimerlab.regions import resolve_regions
 from vhirprimerlab.scoring import score_pair
 from vhirprimerlab.specificity import Oligo, check_specificity
+from vhirprimerlab.thermo import DEFAULT_THERMO, SALT_METHODS, TM_METHODS, Thermo
 from vhirprimerlab.tiling import tile, tile_spans
 
 log = logging.getLogger("vhirprimerlab")
@@ -149,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
+    _add_thermo_args(p)
     p.add_argument("--allow-degenerate", action="store_true", help="allow IUPAC bases in primers")
     p.add_argument("--max-degeneracy", type=int,
                    help="max fold per degenerate primer (default 4 when tiling, 8 otherwise)")
@@ -156,6 +158,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-pairs", type=int, default=5, help="pairs to report per region")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging and tracebacks")
     return p
+
+
+def _add_thermo_args(p: argparse.ArgumentParser) -> None:
+    """Reaction conditions for every Tm, hairpin and dimer calculation (defaults: primer3's own)."""
+    g = p.add_argument_group(
+        "reaction conditions", "the buffer Tm and primer structure are calculated for")
+    d = DEFAULT_THERMO
+    g.add_argument("--mv-conc", type=float, default=d.mv_conc, help="monovalent cations, mM (Na+, K+)")
+    g.add_argument("--dv-conc", type=float, default=d.dv_conc, help="divalent cations, mM (Mg2+)")
+    g.add_argument("--dntp-conc", type=float, default=d.dntp_conc, help="each dNTP, mM")
+    g.add_argument("--dna-conc", type=float, default=d.dna_conc, help="oligo concentration, nM")
+    g.add_argument("--tm-method", choices=TM_METHODS, default=d.tm_method, help="Tm formula")
+    g.add_argument("--salt-correction", choices=SALT_METHODS, default=d.salt_method,
+                   help="salt correction of the Tm")
+    g.add_argument("--structure-temp", type=float, default=d.structure_temp,
+                   help="temperature (°C) at which hairpin and dimer ΔG are evaluated")
+    g.add_argument("--max-dimer-dg", type=float, default=d.max_dimer_dg / 1000,
+                   help="two primers of a pool whose dimer ΔG (kcal/mol) is below this form a dimer")
+
+
+def thermo_from_args(a: argparse.Namespace) -> Thermo:
+    return Thermo(a.mv_conc, a.dv_conc, a.dntp_conc, a.dna_conc, a.tm_method, a.salt_correction,
+                  a.structure_temp, a.max_dimer_dg * 1000)
 
 
 def _design_problems(a: argparse.Namespace) -> list[str]:
@@ -183,6 +208,7 @@ def _design_problems(a: argparse.Namespace) -> list[str]:
         problems.append("--max-tm-diff must be >= 0")
     if a.max_degeneracy < 1:
         problems.append("--max-degeneracy must be >= 1")
+    problems += thermo_from_args(a).problems()
     return problems
 
 
@@ -205,6 +231,7 @@ def _score_candidate(
     allow_degenerate: bool,
     max_fold: int,
     gc_limits: tuple[float, float] | None = None,
+    thermo: Thermo = DEFAULT_THERMO,
 ) -> ScoredPair:
     f, r = cand.forward, cand.reverse
     fwd_cols = cons.cons_to_col[f.start: f.start + f.length]
@@ -221,8 +248,8 @@ def _score_candidate(
     return ScoredPair(
         pair=cand, fwd_seq=fwd_seq, rev_seq=rev_seq, fwd_cols=fwd_cols, rev_cols=rev_cols,
         coverage=cov, degenerate=degenerate,
-        fwd_tm_range=tm_range(fwd_seq) if degenerate else None,
-        rev_tm_range=tm_range(rev_seq) if degenerate else None,
+        fwd_tm_range=tm_range(fwd_seq, thermo) if degenerate else None,
+        rev_tm_range=tm_range(rev_seq, thermo) if degenerate else None,
     )
 
 
@@ -241,7 +268,8 @@ def _design_region(
         raise PipelineError(f"Region '{region.name}': {exc}") from exc
     scored = [
         _score_candidate(
-            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max)
+            c, cons, aln, sparams, a.allow_degenerate, a.max_degeneracy, (a.gc_min, a.gc_max),
+            dparams.thermo,
         )
         for c in design.pairs
     ]
@@ -391,7 +419,7 @@ def run(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
 
     dparams = DesignParams(
         a.tm_min, a.tm_opt, a.tm_max, a.max_tm_diff, a.primer_len_min, a.primer_len_max,
-        a.gc_min, a.gc_max, a.amplicon_min, a.amplicon_max, a.candidates,
+        a.gc_min, a.gc_max, a.amplicon_min, a.amplicon_max, a.candidates, thermo_from_args(a),
     )
     sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
     progress("scoring", 0.3)
@@ -477,6 +505,7 @@ def run_tiling(a: argparse.Namespace, command: str, log_lines: list[str]) -> int
         degenerate=not a.no_degenerate, max_degeneracy=a.max_degeneracy,
         min_coverage=a.min_coverage, max_start_loss=a.max_start_loss,
         max_end_loss=a.max_end_loss, amplicon_len=a.amplicon_len, max_ambiguous=a.max_ambiguous,
+        thermo=thermo_from_args(a),
     )
     if spans:
         result = tile_spans(al.aln, al.cons, al.stats, al.cmap, params, spans, progress)
@@ -541,6 +570,7 @@ def build_check_parser() -> argparse.ArgumentParser:
     p.add_argument("--three-prime-window", type=int, default=5,
                    help="3' bases that must match exactly")
     p.add_argument("--min-coverage", type=float, default=95.0, help="minimum coverage (%%)")
+    _add_thermo_args(p)
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging and tracebacks")
     p.add_argument("--progress-file", type=Path, help=argparse.SUPPRESS)
     return p
@@ -558,6 +588,7 @@ def check_check_params(a: argparse.Namespace) -> None:
         problems.append("--min-coverage must be between 0 and 100")
     if a.length_tolerance <= 0:
         problems.append("--length-tolerance must be > 0")
+    problems += thermo_from_args(a).problems()
     if problems:
         raise PipelineError("Invalid parameters: " + "; ".join(problems))
 
@@ -571,15 +602,16 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
     al = _align_inputs(a, inp)
     progress("scoring", 0.5)
     sparams = ScoringParams(a.max_mismatches, a.three_prime_window, a.max_ambiguous)
-    results = [check_assay(x, al.aln, al.cons, sparams, a.min_coverage) for x in assays]
+    thermo = thermo_from_args(a)
+    results = [check_assay(x, al.aln, al.cons, sparams, a.min_coverage, thermo) for x in assays]
     for res in results:
         if not res.located:
             log.warning("Pair %s: not located (%s)", res.assay.name, res.note)
         else:
             log.info("Pair %s: %.1f%% coverage", res.assay.name, res.coverage.coverage_pct)
     progress("checking primer dimers", 0.8)
-    dimers = cross_dimers(assays)
-    for line in structure_warnings(results, dimers):
+    dimers = cross_dimers(assays, thermo)
+    for line in structure_warnings(results, dimers, thermo):
         log.warning("%s", line)
     write_check_tsv(results, al.cmap, a.outdir / "check.tsv")
     low = [r.assay.name for r in results if r.below_threshold]
@@ -594,6 +626,7 @@ def run_check(a: argparse.Namespace, command: str, log_lines: list[str]) -> int:
         n_conserved=sum(1 for s in al.stats if s.majority_freq == 1.0),
         mean_conservation=statistics.fmean(s.majority_freq for s in al.stats),
         min_coverage=a.min_coverage, results=results, log_lines=log_lines, dimers=dimers,
+        thermo=thermo,
     )
     write_check_report(report, al.cmap, a.outdir / "report.txt")
     log.info("Wrote results to %s", a.outdir)

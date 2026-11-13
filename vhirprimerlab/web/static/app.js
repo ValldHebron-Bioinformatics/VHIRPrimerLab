@@ -1380,11 +1380,17 @@ import {
     renderDownloads(st, order);
   }
 
-  const DIMER_KCAL = -9; // the same limit as vhirprimerlab.structure.DIMER_DG
+  const DIMER_KCAL = -9; // the same limit as vhirprimerlab.thermo.DIMER_DG, the Basic setting
+
+  // The ΔG below which the run counted two primers as a dimer: the Advanced field, else the default.
+  function dimerLimit() {
+    const limit = advanced() ? num('max_dimer_dg') : DIMER_KCAL;
+    return Number.isFinite(limit) && limit < 0 ? limit : DIMER_KCAL;
+  }
 
   function checkNote(r) {
     const dg = r.pair_dimer_dg === '' || r.pair_dimer_dg == null ? null : +r.pair_dimer_dg;
-    const dimer = dg !== null && dg < DIMER_KCAL ? `forward and reverse form a dimer (ΔG ${dg.toFixed(1).replace('-', '−')} kcal/mol)` : '';
+    const dimer = dg !== null && dg < dimerLimit() ? `forward and reverse form a dimer (ΔG ${dg.toFixed(1).replace('-', '−')} kcal/mol)` : '';
     return [r.note, dimer].filter(Boolean).join(' · ');
   }
 

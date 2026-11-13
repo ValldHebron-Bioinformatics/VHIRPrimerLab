@@ -26,7 +26,7 @@ from vhirprimerlab.models import (
     primer_names,
 )
 from vhirprimerlab.ranking import count_reasons
-from vhirprimerlab.structure import DIMER_DG
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 PER_PRIMER_DEGENERACY = [
     "forward_degenerate_bases", "reverse_degenerate_bases", "forward_variants", "reverse_variants",
@@ -303,7 +303,7 @@ def write_check_tsv(results: list[CheckResult], cmap: CoordMap, path: Path) -> N
             ])
 
 
-def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
+def _pair_section(res: CheckResult, cmap: CoordMap, thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     a, cov = res.assay, res.coverage
     title = f"Pair {a.name}"
     n_total = len(cov.covered) + len(cov.not_covered)
@@ -326,7 +326,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
     for side, problems in (("Forward", res.fwd_structure), ("Reverse", res.rev_structure)):
         lines.append(f"{side} structure: {'; '.join(problems) or 'ok'}")
     if res.pair_dimer_dg is not None:
-        dimer = "forms a dimer" if res.pair_dimer_dg < DIMER_DG else "ok"
+        dimer = "forms a dimer" if res.pair_dimer_dg < thermo.max_dimer_dg else "ok"
         lines.append(f"Forward x reverse: ΔG {res.pair_dimer_dg / 1000:.1f} kcal/mol ({dimer})")
     note = _note(res, cmap)
     if res.located and note:
@@ -340,7 +340,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
 def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
     out = _header_lines(report, "VHIRPrimerLab check report")
     for res in report.results:
-        out += _pair_section(res, cmap) + [""]
+        out += _pair_section(res, cmap, report.thermo) + [""]
     low = [res.assay.name for res in report.results if res.below_threshold]
     out += ["Summary", "-------"]
     if low:
@@ -349,7 +349,7 @@ def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
         out.append("Every pair meets --min-coverage.")
     out += ["", "Dimers between pairs (if mixed in one tube)", "-------------------------------------------"]
     out += [f"{a} x {b}: ΔG {dg / 1000:.1f} kcal/mol" for a, b, dg in report.dimers] or [
-        f"None below {DIMER_DG / 1000:g} kcal/mol."]
+        f"None below {report.thermo.max_dimer_dg / 1000:g} kcal/mol."]
     out += ["", "Log", "---", *report.log_lines]
     Path(path).write_text("\n".join(out) + "\n")
 

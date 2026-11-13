@@ -7,10 +7,10 @@ import math
 from collections import Counter
 from typing import Callable
 
-import primer3
 
 from vhirprimerlab.models import Alignment, PairCoverage, ScoringParams
 from vhirprimerlab.scoring import CODE_FOR, IUPAC, ThreePrime, match_primer, score_pair
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 BASES = "ACGT"
 
@@ -30,10 +30,10 @@ def gc_percent(primer: str) -> float:
     return 100 * sum(len(IUPAC[b] & {"G", "C"}) / len(IUPAC[b]) for b in primer) / len(primer)
 
 
-def tm_range(primer: str) -> tuple[float, float]:
+def tm_range(primer: str, thermo: Thermo = DEFAULT_THERMO) -> tuple[float, float]:
     """Min and max primer3 Tm over every expansion of a (possibly degenerate) primer."""
     options = [sorted(IUPAC[b]) for b in primer]
-    tms = [primer3.calc_tm("".join(v)) for v in itertools.product(*options)]
+    tms = [thermo.tm("".join(v)) for v in itertools.product(*options)]
     return min(tms), max(tms)
 
 

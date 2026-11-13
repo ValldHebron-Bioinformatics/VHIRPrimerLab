@@ -133,7 +133,7 @@ def test_advice_promises_what_dimer_avoidance_leaves(interior_poor, monkeypatch)
     bad = clean.amplicons[0].fwd.seq
     # that edge primer now forms a dimer with everything, so a re-run swaps it out (the
     # interior amplicon is the weakest, so the swap costs no coverage and is kept)
-    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -12000.0 if bad in (a, b) else -3000.0)
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b, t=None: -12000.0 if bad in (a, b) else -3000.0)
     [adv] = tile(*interior_poor, base).edge_advice
     assert adv.edge_after < first.edge_after  # no longer the 100 % of the dimer-prone primer
     rerun = tile(*interior_poor, dataclasses.replace(base, max_start_loss=adv.limit))

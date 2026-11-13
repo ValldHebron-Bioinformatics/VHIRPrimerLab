@@ -8,6 +8,7 @@ from typing import Any
 import primer3
 
 from vhirprimerlab.structure import MAX_END_GC
+from vhirprimerlab.thermo import SALT_CORRECTIONS, TM_FORMULA
 
 from vhirprimerlab.models import (
     CandidatePair,
@@ -43,6 +44,12 @@ def _global_args(params: DesignParams) -> dict[str, Any]:
         "PRIMER_MAX_NS_ACCEPTED": 0,
         "PRIMER_MAX_END_GC": MAX_END_GC,  # primer3's default (5) sets no limit
         "PRIMER_EXPLAIN_FLAG": 1,
+        "PRIMER_SALT_MONOVALENT": params.thermo.mv_conc,
+        "PRIMER_SALT_DIVALENT": params.thermo.dv_conc,
+        "PRIMER_DNTP_CONC": params.thermo.dntp_conc,
+        "PRIMER_DNA_CONC": params.thermo.dna_conc,
+        "PRIMER_TM_FORMULA": TM_FORMULA[params.thermo.tm_method],
+        "PRIMER_SALT_CORRECTIONS": SALT_CORRECTIONS[params.thermo.salt_method],
     }
 
 

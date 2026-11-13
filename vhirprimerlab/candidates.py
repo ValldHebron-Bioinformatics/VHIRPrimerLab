@@ -6,13 +6,13 @@ import dataclasses
 from collections import defaultdict
 from typing import Callable
 
-import primer3
 from Bio.Seq import reverse_complement
 
 from vhirprimerlab.degenerate import degenerate_site, gc_percent, tm_range
 from vhirprimerlab.models import Alignment, ColumnStats, Consensus, PrimerCandidate, TilingParams
 from vhirprimerlab.scoring import match_primer
 from vhirprimerlab.structure import structure_ok
+from vhirprimerlab.thermo import Thermo
 
 Progress = Callable[[str, float], None]
 
@@ -40,8 +40,8 @@ def _end_params(params: TilingParams) -> TilingParams:
     )
 
 
-def _rc_structure_ok(site: str) -> bool:
-    return structure_ok(reverse_complement(site))
+def _rc_structure_ok(site: str, thermo: Thermo) -> bool:
+    return structure_ok(reverse_complement(site), thermo)
 
 
 def _gc(seq: str) -> float:
@@ -64,7 +64,7 @@ def _best_length(
         if not params.gc_min <= _gc(site) <= params.gc_max:
             continue
         seq = site if strand == "+" else reverse_complement(site)
-        tm = primer3.calc_tm(seq)
+        tm = params.thermo.tm(seq)
         if not params.tm_min <= tm <= params.tm_max:
             continue
         penalty = abs(tm - params.tm_opt) + abs(length - len_opt)
@@ -72,7 +72,7 @@ def _best_length(
             best = PrimerCandidate(strand, start, length, site, seq, seq, tm, None, _gc(site), penalty)
     if best is None:
         return None
-    return best if structure_ok(best.seq) else None
+    return best if structure_ok(best.seq, params.thermo) else None
 
 
 def enumerate_primers(
@@ -186,11 +186,12 @@ def score_primers(
             gc = (0.0, 100.0) if at_end else (params.gc_min, params.gc_max)
             site = degenerate_site(
                 c.site, cols, aln, sp, params.max_degeneracy, side, gc,
-                accept=structure_ok if c.strand == "+" else _rc_structure_ok,
+                accept=(lambda s: structure_ok(s, params.thermo)) if c.strand == "+"
+                else (lambda s: _rc_structure_ok(s, params.thermo)),
             )
             if site != c.site:
                 seq = site if c.strand == "+" else reverse_complement(site)
-                lo, hi = tm_range(seq)
+                lo, hi = tm_range(seq, params.thermo)
                 scored = dataclasses.replace(
                     scored, site=site, seq=seq, tm=(lo + hi) / 2, tm_range=(lo, hi), gc=gc_percent(seq),
                     mask=_mask(site, cols, aln, side, sp),

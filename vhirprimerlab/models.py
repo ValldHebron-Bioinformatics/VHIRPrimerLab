@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
+
 if TYPE_CHECKING:  # specificity imports this module
     from vhirprimerlab.specificity import SpecificityReport
 
@@ -119,6 +121,7 @@ class DesignParams:
     amplicon_min: int
     amplicon_max: int
     candidates: int
+    thermo: Thermo = DEFAULT_THERMO
 
 
 @dataclass
@@ -234,6 +237,7 @@ class CheckReport:
     results: list[CheckResult]
     log_lines: list[str]
     dimers: list[tuple[str, str, float]] = field(default_factory=list)  # across pairs
+    thermo: Thermo = DEFAULT_THERMO
 
 
 @dataclass(frozen=True)
@@ -259,6 +263,7 @@ class TilingParams:
     max_end_loss: int = 50  # genome bases allowed outside the last insert
     amplicon_len: int = 400  # target amplicon length when tiling chosen spans
     max_ambiguous: int = 2  # see ScoringParams.max_ambiguous
+    thermo: Thermo = DEFAULT_THERMO
 
     @property
     def scoring(self) -> ScoringParams:

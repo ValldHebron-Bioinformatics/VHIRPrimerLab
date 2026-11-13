@@ -31,7 +31,8 @@ from vhirprimerlab.models import (
     primer_names,
 )
 from vhirprimerlab.scoring import score_pair
-from vhirprimerlab.structure import DIMER_DG, dimer_dg
+from vhirprimerlab.structure import dimer_dg
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 log = logging.getLogger("vhirprimerlab")
 
@@ -223,9 +224,10 @@ def _key(c: PrimerCandidate) -> Key:
     return c.strand, c.start, c.length
 
 
-def _dimer_pairs(path: Path_, names: list[str], pools: list[int] | None = None) -> list[
+def _dimer_pairs(path: Path_, names: list[str], pools: list[int] | None = None,
+                 thermo: Thermo = DEFAULT_THERMO) -> list[
         tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
-    """Primer pairs in one pool whose worst variant pair has ΔG below DIMER_DG.
+    """Primer pairs in one pool whose worst variant pair has ΔG below thermo.max_dimer_dg.
 
     Amplicon k (1-based) is named names[k - 1] and is in pools[k - 1]; without pools,
     pool 1 when k is odd and pool 2 when even. Every variant of a degenerate primer is
@@ -241,15 +243,16 @@ def _dimer_pairs(path: Path_, names: list[str], pools: list[int] | None = None) 
                 oligos += [(left, f), (right, r)]
         for i, (name_a, a) in enumerate(oligos):
             for name_b, b in oligos[i + 1:]:
-                dg = dimer_dg(a.seq, b.seq)
-                if dg < DIMER_DG:
+                dg = dimer_dg(a.seq, b.seq, thermo)
+                if dg < thermo.max_dimer_dg:
                     found.append((pool, name_a, name_b, dg, a, b))
     return found
 
 
-def _dimers(path: Path_, names: list[str], pools: list[int] | None = None) -> list[str]:
+def _dimers(path: Path_, names: list[str], pools: list[int] | None = None,
+            thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     return [f"pool {pool}: {na} × {nb} ΔG {dg / 1000:.1f} kcal/mol"
-            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names, pools)]
+            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names, pools, thermo)]
 
 
 def assign_pools(spans: list[list[tuple[str, int, int]]]) -> tuple[list[int], list[str]]:
@@ -314,7 +317,7 @@ def _avoid_dimers(path: Path_, names: list[str], geom: Geometry, fwds, revs, n, 
     """
     banned: set[Key] = set()
     kept: set[tuple[Key, Key]] = set()
-    pairs = _dimer_pairs(path, names)
+    pairs = _dimer_pairs(path, names, thermo=params.thermo)
     swaps = 0
     while swaps < MAX_DIMER_SWAPS:
         todo = [p for p in pairs if (_key(p[4]), _key(p[5])) not in kept]
@@ -331,7 +334,7 @@ def _avoid_dimers(path: Path_, names: list[str], geom: Geometry, fwds, revs, n, 
                                             banned | {_key(c)})
             if trial is None or _worst_coverage(trial) < _worst_coverage(path):
                 continue
-            trial_pairs = _dimer_pairs(trial, names)
+            trial_pairs = _dimer_pairs(trial, names, thermo=params.thermo)
             if len(trial_pairs) < len(pairs):
                 banned.add(_key(c))
                 path, geom, pairs = trial, trial_geom, trial_pairs
@@ -540,7 +543,7 @@ def tile(
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
     advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats)
-    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends,
+    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names, thermo=params.thermo), ends,
                         edge_advice=advice)
 
 
@@ -607,5 +610,5 @@ def tile_spans(
               for span, part in zip(spans, parts) for a in part.edge_advice]
     return TilingResult(amplicons, parts[0].geometry,
                         sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
-                        _dimers(path, names, pools), ends, spanned=True, edge_advice=advice,
+                        _dimers(path, names, pools, params.thermo), ends, spanned=True, edge_advice=advice,
                         pool_warnings=pool_warnings)
