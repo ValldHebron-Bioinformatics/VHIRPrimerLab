@@ -9,11 +9,13 @@ import math
 from typing import Callable
 
 from vhirprimerlab.candidates import (
+    CandidateMemo,
     end_loss,
     enumerate_primers,
     loss_limit,
     pick_conserved,
     score_primers,
+    structure_valid,
 )
 from vhirprimerlab.coords import CoordMap
 from vhirprimerlab.models import (
@@ -31,7 +33,8 @@ from vhirprimerlab.models import (
     primer_names,
 )
 from vhirprimerlab.scoring import score_pair
-from vhirprimerlab.structure import DIMER_DG, dimer_dg
+from vhirprimerlab.structure import dimer_dg
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 log = logging.getLogger("vhirprimerlab")
 
@@ -151,31 +154,41 @@ def choose(
         preds.append([ri for ri in range(lo, hi)
                       if revs[ri].end - f.start + 1 <= geom.max_outer_overlap])
 
+    # the forward primers each reverse primer may follow, the other way round
+    succ: list[list[int]] = [[] for _ in revs]
+    for fi, rs in enumerate(preds):
+        for ri in rs:
+            succ[ri].append(fi)
+
     first_ok = [end_loss(f, span) <= params.max_start_loss for f in fwds]
     last_ok = [end_loss(r, span) <= params.max_end_loss for r in revs]
 
     def run(t: int) -> Path_ | None:
-        # layer value: (sum of coverage, sum of primer matches, -bases before the first
-        # primer, -sum of penalty); back[k][ri] = (fi, prev ri)
+        # Only amplicons covering at least t sequences can be used, whatever the layer, so they
+        # are picked out once. A layer's value is (sum of coverage, sum of primer matches, -bases
+        # before the first primer, -sum of penalty); back[k][ri] = (fi, prev ri).
+        viable = [[a for a in amps if a[1] >= t] for amps in by_rev]
         value: dict[int, tuple[int, int, int, float]] = {}
         back: list[dict[int, tuple[int, int | None]]] = [{}]
-        for ri, amps in enumerate(by_rev):
+        for ri, amps in enumerate(viable):
             for fi, cov, pm, neg in amps:
                 v = (cov, pm, -fwds[fi].start, neg)
-                if cov >= t and first_ok[fi] and (ri not in value or v > value[ri]):
+                if first_ok[fi] and (ri not in value or v > value[ri]):
                     value[ri] = v
                     back[0][ri] = (fi, None)
         for _ in range(n - 1):
+            # the best way to arrive at each forward primer: the largest (value, reverse primer)
             best_in: dict[int, tuple[tuple[int, int, int, float], int]] = {}
-            for fi, rs in enumerate(preds):
-                cands = [(value[ri], ri) for ri in rs if ri in value]
-                if cands:
-                    best_in[fi] = max(cands)
+            for ri, v in value.items():
+                for fi in succ[ri]:
+                    cand = (v, ri)
+                    if fi not in best_in or cand > best_in[fi]:
+                        best_in[fi] = cand
             new: dict[int, tuple[int, int, int, float]] = {}
             layer: dict[int, tuple[int, int | None]] = {}
-            for ri, amps in enumerate(by_rev):
+            for ri, amps in enumerate(viable):
                 for fi, cov, pm, neg in amps:
-                    if cov < t or fi not in best_in:
+                    if fi not in best_in:
                         continue
                     (s, m, start, p), prev = best_in[fi]
                     v = (s + cov, m + pm, start, p + neg)
@@ -223,32 +236,72 @@ def _key(c: PrimerCandidate) -> Key:
     return c.strand, c.start, c.length
 
 
-def _dimer_pairs(path: Path_, names: list[str]) -> list[
+def _dimer_pairs(path: Path_, names: list[str], pools: list[int] | None = None,
+                 thermo: Thermo = DEFAULT_THERMO) -> list[
         tuple[int, str, str, float, PrimerCandidate, PrimerCandidate]]:
-    """Primer pairs in one pool whose worst variant pair has ΔG below DIMER_DG.
+    """Primer pairs in one pool whose worst variant pair has ΔG below thermo.max_dimer_dg.
 
-    Amplicon k (1-based) is in pool 1 when k is odd, pool 2 when even, and is named
-    names[k - 1]. Every variant of a degenerate primer is checked against every
-    variant of the other primer.
+    Amplicon k (1-based) is named names[k - 1] and is in pools[k - 1]; without pools,
+    pool 1 when k is odd and pool 2 when even. Every variant of a degenerate primer is
+    checked against every variant of the other primer.
     """
+    pools = pools or [1 if k % 2 else 2 for k in range(1, len(path) + 1)]
     found = []
     for pool in (1, 2):
         oligos: list[tuple[str, PrimerCandidate]] = []
-        for k, ((f, r), name) in enumerate(zip(path, names), start=1):
-            if (1 if k % 2 else 2) == pool:
+        for (f, r), name, amp_pool in zip(path, names, pools):
+            if amp_pool == pool:
                 left, right = primer_names(name)
                 oligos += [(left, f), (right, r)]
         for i, (name_a, a) in enumerate(oligos):
             for name_b, b in oligos[i + 1:]:
-                dg = dimer_dg(a.seq, b.seq)
-                if dg < DIMER_DG:
+                dg = dimer_dg(a.seq, b.seq, thermo)
+                if dg < thermo.max_dimer_dg:
                     found.append((pool, name_a, name_b, dg, a, b))
     return found
 
 
-def _dimers(path: Path_, names: list[str]) -> list[str]:
+def _dimers(path: Path_, names: list[str], pools: list[int] | None = None,
+            thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     return [f"pool {pool}: {na} × {nb} ΔG {dg / 1000:.1f} kcal/mol"
-            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names)]
+            for pool, na, nb, dg, _, _ in _dimer_pairs(path, names, pools, thermo)]
+
+
+def assign_pools(spans: list[list[tuple[str, int, int]]]) -> tuple[list[int], list[str]]:
+    """Pools (1 or 2) of the amplicons of several spans, and a warning for each clash left.
+
+    Amplicons are numbered across the scheme and alternate pools by that number, which keeps
+    neighbours of a span apart. Spans that overlap one another (neighbouring genes, say) can
+    put overlapping amplicons in one tube, where each one's primers prime the other's
+    product. A whole span is therefore flipped to the other parity when that overlaps
+    fewer same-pool amplicons; a clash no choice avoids (three amplicons that overlap
+    one another cannot be split over two pools) is reported. Each span is (name, start, end).
+    """
+    placed: list[tuple[str, int, int, int]] = []  # name, start, end, pool
+
+    def clashes(candidate: list[tuple[str, int, int, int]]) -> list[tuple[str, str, int]]:
+        found = []
+        for name, start, end, pool in candidate:
+            for other, o_start, o_end, o_pool in placed:
+                shared = min(end, o_end) - max(start, o_start) + 1
+                if o_pool == pool and shared > 0:
+                    found.append((other, name, shared))
+        return found
+
+    warnings: list[str] = []
+    for span in spans:
+        options = []
+        for flip in (0, 1):
+            candidate = [(name, start, end, 1 + ((len(placed) + j + flip) % 2))
+                         for j, (name, start, end) in enumerate(span)]
+            found = clashes(candidate)
+            options.append(((len(found), sum(c[2] for c in found)), candidate, found))
+        _, candidate, found = min(options, key=lambda o: o[0])  # the numbering's own pools win ties
+        warnings += [f"{a} and {b} are in the same pool and their amplicons overlap by {n} bp, so "
+                     f"the primers of one can prime the other's product; tile overlapping "
+                     f"regions in separate runs" for a, b, n in found]
+        placed += candidate
+    return [pool for *_, pool in placed], warnings
 
 
 def _worst_coverage(path: Path_) -> int:
@@ -276,7 +329,7 @@ def _avoid_dimers(path: Path_, names: list[str], geom: Geometry, fwds, revs, n, 
     """
     banned: set[Key] = set()
     kept: set[tuple[Key, Key]] = set()
-    pairs = _dimer_pairs(path, names)
+    pairs = _dimer_pairs(path, names, thermo=params.thermo)
     swaps = 0
     while swaps < MAX_DIMER_SWAPS:
         todo = [p for p in pairs if (_key(p[4]), _key(p[5])) not in kept]
@@ -293,7 +346,7 @@ def _avoid_dimers(path: Path_, names: list[str], geom: Geometry, fwds, revs, n, 
                                             banned | {_key(c)})
             if trial is None or _worst_coverage(trial) < _worst_coverage(path):
                 continue
-            trial_pairs = _dimer_pairs(trial, names)
+            trial_pairs = _dimer_pairs(trial, names, thermo=params.thermo)
             if len(trial_pairs) < len(pairs):
                 banned.add(_key(c))
                 path, geom, pairs = trial, trial_geom, trial_pairs
@@ -364,11 +417,22 @@ def _no_fit(
 
 
 def _candidates(aln: Alignment, cons: Consensus, stats: list[ColumnStats], params: TilingParams,
-                span: tuple[int, int], progress: Progress | None = None):
-    """Forward and reverse primers for span, scored against every sequence."""
-    raw_f, raw_r = enumerate_primers(cons.seq, params, span)
-    picked = pick_conserved(raw_f, stats, cons, params) + pick_conserved(raw_r, stats, cons, params)
-    scored = score_primers(picked, aln, cons, params, progress=progress, span=span)
+                span: tuple[int, int], progress: Progress | None = None,
+                memo: CandidateMemo | None = None):
+    """Forward and reverse primers for span, scored against every sequence.
+
+    With a memo (made for these parameters, span and alignment) primers found and scored before
+    are reused: a re-run that only moves the end allowances repeats the work for the ends alone.
+    """
+    if memo is not None and not memo.fits(params, span, aln):
+        memo = None
+    # Most primers are never kept, and checking a primer's hairpins and dimers is what takes the
+    # time: that check is left until pick_conserved is about to keep one (the same primers result).
+    raw_f, raw_r = enumerate_primers(cons.seq, params, span, memo, check_structure=False)
+    valid = structure_valid(params)
+    picked = (pick_conserved(raw_f, stats, cons, params, valid=valid)
+              + pick_conserved(raw_r, stats, cons, params, valid=valid))
+    scored = score_primers(picked, aln, cons, params, progress=progress, span=span, memo=memo)
     return [c for c in scored if c.strand == "+"], [c for c in scored if c.strand == "-"]
 
 
@@ -380,7 +444,7 @@ def _coverages(path: Path_, aln: Alignment, params: TilingParams) -> list[float]
 
 def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry,
                  params: TilingParams, span, aln: Alignment, cons: Consensus,
-                 stats: list[ColumnStats]) -> list[EdgeAdvice]:
+                 stats: list[ColumnStats], memo: CandidateMemo | None = None) -> list[EdgeAdvice]:
     """Where giving up more bases at one span edge would lift that edge amplicon's coverage.
 
     Judged on the edge amplicon itself; the weakest amplicon is only a guard, so advice
@@ -416,7 +480,7 @@ def _edge_advice(amplicons: list[Amplicon], fwds, revs, n, geoms, geom: Geometry
             if limit <= getattr(cur, flag):
                 break
             cur = dataclasses.replace(params, **{flag: limit})
-            cur_f, cur_r = _candidates(aln, cons, stats, cur, span)
+            cur_f, cur_r = _candidates(aln, cons, stats, cur, span, memo=memo)
             path, g = _choose_any(cur_f, cur_r, n, geoms, cur, span, set())
             if not path:
                 break
@@ -470,8 +534,9 @@ def tile(
                     geoms[0].target_len)
 
     report("finding primers", 0.10)
+    memo = CandidateMemo(params, span, aln)  # lets the edge advice reuse the primers away from the ends
     fwds, revs = _candidates(aln, cons, stats, params, span,
-                             lambda stage, f: report(stage, 0.15 + 0.65 * f))
+                             lambda stage, f: report(stage, 0.15 + 0.65 * f), memo)
     log.info("Candidate primers: %d forward, %d reverse", len(fwds), len(revs))
 
     report("choosing amplicons", 0.85)
@@ -501,8 +566,8 @@ def tile(
     span_last = cmap.ref_length if span[1] == len(cons.seq) - 1 else _ref(cmap, cons, span[1], "end")
     ends = (first - span_first if first and span_first else 0,
             span_last - last if last and span_last else 0)
-    advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats)
-    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names), ends,
+    advice = _edge_advice(amplicons, fwds, revs, n, geoms, geom, params, span, aln, cons, stats, memo)
+    return TilingResult(amplicons, geom, len(fwds), len(revs), _dimers(path, names, thermo=params.thermo), ends,
                         edge_advice=advice)
 
 
@@ -528,6 +593,7 @@ def tile_spans(
     amplicons: list[Amplicon] = []
     path: Path_ = []
     names: list[str] = []
+    extents: list[list[tuple[str, int, int]]] = []
     for i, span in enumerate(spans):
         lo, length = cmap.region_to_included(span)
         n = amplicons_for(length, params.amplicon_len, params.overlap)
@@ -538,13 +604,14 @@ def tile_spans(
         except PipelineError as e:
             raise PipelineError(f"Region '{span.name}': {e}") from e
         parts.append(part)
+        extents.append([])
         for k, a in enumerate(part.amplicons, start=1):
             name = span.name if n == 1 else f"{span.name}_{k}"
             index = len(amplicons) + 1
             last = k == len(part.amplicons)
             amplicons.append(dataclasses.replace(
-                a, index=index, name=name, pool=1 if index % 2 else 2,
-                overlap_next=None if last else a.overlap_next))
+                a, index=index, name=name, overlap_next=None if last else a.overlap_next))
+            extents[-1].append((name, a.fwd.start, a.rev.end))
             path.append((a.fwd, a.rev))
             names.append(name)
     # A span of several amplicons names them NAME_1, NAME_2, ...; a span of one keeps its own
@@ -558,9 +625,14 @@ def tile_spans(
             f"Two amplicons would both be called {', '.join(repeated)}, so their primers could "
             "not be told apart in primers.tsv or scheme.bed: rename one of the regions"
         )
+    pools, pool_warnings = assign_pools(extents)
+    amplicons = [dataclasses.replace(a, pool=pool) for a, pool in zip(amplicons, pools)]
+    for warning in pool_warnings:
+        log.warning(warning)
     ends = (max(p.uncovered_ends[0] for p in parts), max(p.uncovered_ends[1] for p in parts))
     advice = [dataclasses.replace(a, span=span.name)
               for span, part in zip(spans, parts) for a in part.edge_advice]
     return TilingResult(amplicons, parts[0].geometry,
                         sum(p.n_fwd for p in parts), sum(p.n_rev for p in parts),
-                        _dimers(path, names), ends, spanned=True, edge_advice=advice)
+                        _dimers(path, names, pools, params.thermo), ends, spanned=True, edge_advice=advice,
+                        pool_warnings=pool_warnings)

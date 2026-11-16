@@ -102,6 +102,7 @@ def create_app(
         params: str = Form("{}"),
         fasta_text: str = Form(""),
         primers_text: str = Form(""),
+        background_text: str = Form(""),
         fasta: UploadFile | None = File(None),
     ) -> dict[str, str]:
         try:
@@ -111,7 +112,7 @@ def create_app(
         max_bytes = int(limits.max_upload_mb * 1024 * 1024)
         content = await fasta.read(max_bytes + 1) if fasta is not None else fasta_text.encode()
         try:
-            argv, files = prepare_job(mode, settings, content, primers_text, limits, _aligners())
+            argv, files = prepare_job(mode, settings, content, primers_text, limits, _aligners(), background_text)
         except ValueError as exc:
             raise _bad(str(exc)) from None
         try:

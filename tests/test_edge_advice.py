@@ -98,19 +98,21 @@ def test_the_result_is_what_was_asked_for(start_poor, monkeypatch) -> None:
     assert asked.amplicons[0].fwd.end + 1 <= 50  # still inside the asked-for window
 
 
-def test_two_passes_when_the_first_answer_can_be_improved(start_poor, monkeypatch) -> None:
-    # the screen on the primers as first scored names 104, which only reaches 40 %; choosing
-    # again under 104 finds 108 reaches 100 %: the advice is the second pass, not the first
+def test_the_first_answer_is_reached_by_its_own_limit(start_poor, monkeypatch) -> None:
+    # The limit named by the screen on the primers as first scored must be one that really
+    # delivers: allowing it must not swap the primer it was named for. It used to (the end rules
+    # replaced the ordinary primer once the limit reached it), so 104 reached only 40 % and a
+    # second pass had to find 108. Now one screen names 104 and 104 reaches 100 %.
     limits = []
     original = tiling._candidates
-    def spy(aln, cons, stats, params, span, progress=None):
+    def spy(aln, cons, stats, params, span, progress=None, memo=None):
         limits.append(params.max_start_loss)
-        return original(aln, cons, stats, params, span, progress)
+        return original(aln, cons, stats, params, span, progress, memo)
     monkeypatch.setattr(tiling, "_candidates", spy)
     res = tile(*start_poor, _params(n_amplicons=5, max_end_loss=60))
-    assert len(limits) == 3 and limits[0] == 50 and limits[1] < limits[2]  # run, pass 1, pass 2
+    assert len(limits) == 2 and limits[0] == 50  # the run, then the screen under the named limit
     [adv] = res.edge_advice
-    assert adv.limit == limits[2] and adv.edge_after == 100.0
+    assert adv.limit == limits[1] and adv.edge_after == 100.0
 
 
 def test_advice_is_judged_on_the_edge_not_the_weakest(interior_poor) -> None:
@@ -131,7 +133,7 @@ def test_advice_promises_what_dimer_avoidance_leaves(interior_poor, monkeypatch)
     bad = clean.amplicons[0].fwd.seq
     # that edge primer now forms a dimer with everything, so a re-run swaps it out (the
     # interior amplicon is the weakest, so the swap costs no coverage and is kept)
-    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b: -12000.0 if bad in (a, b) else -3000.0)
+    monkeypatch.setattr(tiling, "dimer_dg", lambda a, b, t=None: -12000.0 if bad in (a, b) else -3000.0)
     [adv] = tile(*interior_poor, base).edge_advice
     assert adv.edge_after < first.edge_after  # no longer the 100 % of the dimer-prone primer
     rerun = tile(*interior_poor, dataclasses.replace(base, max_start_loss=adv.limit))
@@ -238,3 +240,33 @@ def test_tile_spans_names_the_span(start_poor) -> None:
                      [Region("F", 1, 3000), Region("G", 3201, 5800)])
     assert [(a.span, a.end) for a in res.edge_advice] == [("F", "start")]
     assert res.edge_advice[0].edge_after > res.edge_advice[0].edge_before
+
+
+# --- the candidate memo: same primers, found once -------------------------------------
+
+def test_a_memo_gives_the_primers_a_fresh_run_gives(start_poor) -> None:
+    from vhirprimerlab.candidates import CandidateMemo
+
+    aln, cons, stats, _ = start_poor
+    base = _params(n_amplicons=5, max_end_loss=60)
+    span = (0, len(cons.seq) - 1)
+    memo = CandidateMemo(base, span, aln)
+    tiling._candidates(aln, cons, stats, base, span, memo=memo)           # fills the memo
+    for start_loss in (50, 80, 104, 200):                                 # the allowances advice explores
+        params = dataclasses.replace(base, max_start_loss=start_loss)
+        assert (tiling._candidates(aln, cons, stats, params, span, memo=memo)
+                == tiling._candidates(aln, cons, stats, params, span))
+
+
+def test_a_memo_is_only_used_for_the_parameters_it_was_made_for(start_poor) -> None:
+    from vhirprimerlab.candidates import CandidateMemo
+
+    aln, cons, stats, _ = start_poor
+    base = _params(n_amplicons=5)
+    span = (0, len(cons.seq) - 1)
+    memo = CandidateMemo(base, span, aln)
+    assert memo.fits(dataclasses.replace(base, max_start_loss=999), span, aln)      # allowances may move
+    assert not memo.fits(dataclasses.replace(base, tm_max=base.tm_max + 1), span, aln)
+    assert not memo.fits(base, (5, span[1]), aln)
+    other = tiling._candidates(aln, cons, stats, dataclasses.replace(base, tm_max=base.tm_max + 1), span, memo=memo)
+    assert other == tiling._candidates(aln, cons, stats, dataclasses.replace(base, tm_max=base.tm_max + 1), span)

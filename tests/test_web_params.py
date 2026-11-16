@@ -113,3 +113,58 @@ def test_genes_mode_reports_a_malformed_span(tmp_path: Path) -> None:
     fasta = _fasta(tmp_path / "g.fa", 2, 1000).read_bytes()
     with pytest.raises(ValueError):
         prepare_job("genes", {"tile_regions": ["F:abc"]}, fasta, "", Limits(), ["mafft"])
+
+
+# --- a background FASTA: sequences the primers must not bind ---------------------------
+
+FASTA = ">a\n" + "ACGTTGCAAGCTTCGGATCC" * 30 + "\n>b\n" + "GGATCCGAAGCTTGCAACGT" * 30 + "\n"
+HOST = ">host\n" + "TTGACCGTAGGCATCGATGC" * 20 + "\n"
+
+
+def test_a_background_is_passed_to_tiling_as_a_file_and_a_flag() -> None:
+    argv, files = prepare_job("tile", {"amplicons": 2}, FASTA.encode(), "", Limits(), ["mafft"],
+                              background_text=HOST)
+    assert argv[argv.index("--background") + 1] == "background.fasta"
+    assert files["background.fasta"] == HOST.encode()
+
+
+def test_a_background_is_passed_to_check_too() -> None:
+    argv, files = prepare_job("check", {}, FASTA.encode(), "p\tACGTTGCAAGCTTCGGATCC\tGGATCCGAAGCTTGCAACGT\n",
+                              Limits(), ["mafft"], background_text=HOST)
+    assert "--background" in argv and files["background.fasta"] == HOST.encode()
+
+
+def test_no_background_means_no_flag_and_no_file() -> None:
+    for text in ("", "  \n"):
+        argv, files = prepare_job("tile", {"amplicons": 2}, FASTA.encode(), "", Limits(), ["mafft"],
+                                  background_text=text)
+        assert "--background" not in argv and "background.fasta" not in files
+
+
+def test_region_design_has_no_use_for_a_background() -> None:
+    with pytest.raises(ValueError, match="tiling and in check mode"):
+        prepare_job("regions", {"regions": ["1-300"], "amplicon_min": 100, "amplicon_max": 250},
+                    FASTA.encode(), "", Limits(), ["mafft"], background_text=HOST)
+
+
+@pytest.mark.parametrize("text, message", [
+    ("not fasta at all", "FASTA"),
+    (">x\nACGT123\n", "invalid character"),
+])
+def test_a_background_that_is_not_fasta_is_refused_in_words(text: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message) as err:
+        prepare_job("tile", {"amplicons": 2}, FASTA.encode(), "", Limits(), ["mafft"], background_text=text)
+    assert "background" in str(err.value).lower() and "/tmp" not in str(err.value)
+
+
+def test_a_background_too_large_to_scan_is_refused() -> None:
+    big = ">big\n" + "A" * 10_000_001 + "\n"
+    with pytest.raises(ValueError, match="10,000,000"):
+        prepare_job("tile", {"amplicons": 2}, FASTA.encode(), "", Limits(max_upload_mb=50), ["mafft"],
+                    background_text=big)
+
+
+def test_a_background_over_the_upload_limit_is_refused() -> None:
+    with pytest.raises(ValueError, match="larger than"):
+        prepare_job("tile", {"amplicons": 2}, FASTA.encode(), "", Limits(max_upload_mb=0.001), ["mafft"],
+                    background_text=">h\n" + "A" * 5000 + "\n")

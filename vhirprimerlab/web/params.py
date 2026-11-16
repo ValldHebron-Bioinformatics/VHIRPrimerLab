@@ -39,10 +39,19 @@ class Limits:
 # setting -> (flag, kind); kind is int, float, str, "aligner", "bool", "regions"
 _SHARED = {
     "max_mismatches": ("--max-mismatches", int),
+    "max_ambiguous": ("--max-ambiguous", int),
     "three_prime_window": ("--three-prime-window", int),
     "min_coverage": ("--min-coverage", float),
     "aligner": ("--aligner", "aligner"),
     "reference_id": ("--reference-id", str),
+    "mv_conc": ("--mv-conc", float),
+    "dv_conc": ("--dv-conc", float),
+    "dntp_conc": ("--dntp-conc", float),
+    "dna_conc": ("--dna-conc", float),
+    "tm_method": ("--tm-method", str),
+    "salt_correction": ("--salt-correction", str),
+    "structure_temp": ("--structure-temp", float),
+    "max_dimer_dg": ("--max-dimer-dg", float),
 }
 _DESIGN = {
     "tm_min": ("--tm-min", float),

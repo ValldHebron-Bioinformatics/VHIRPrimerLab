@@ -47,7 +47,7 @@ so overlapping products never share a tube. It writes:
   sequence`), ready for amplicon-sequencing pipelines.
 - `report.txt`: settings, input and alignment statistics, the tiling (each amplicon with both
   primers: sequence, length, Tm, GC % and degenerate bases), bases left uncovered at the genome
-  ends, possible primer dimers within a pool, and the log.
+  ends, possible primer dimers within a pool, a specificity check (see below) and the log.
 - `alignment.fasta`: the alignment used.
 
 ### How the amplicons are chosen
@@ -108,10 +108,16 @@ span, and primer dimers are checked across the whole scheme.
 | `--primer-len-min/--primer-len-max` | 18 / 25 | primer length |
 | `--gc-min/--gc-max` | 40 / 60 | primer GC % |
 | `--max-mismatches` | 2 | max mismatches per primer |
+| `--max-ambiguous` | 2 | `N`/ambiguous bases in a sequence forgiven per primer (not at the 3′ end) |
+| `--background` | none | FASTA of sequences the primers must not bind (up to 10 Mb), scanned for secondary sites |
 | `--three-prime-window` | 5 | 3′ bases that must match exactly |
 | `--no-degenerate` | off | plain primers only |
 | `--max-degeneracy` | 4 | max variants per degenerate primer |
 | `--min-coverage` | 95 | coverage target (%) |
+| `--mv-conc/--dv-conc/--dntp-conc/--dna-conc` | 50 / 1.5 / 0.6 / 50 | reaction buffer for every Tm and structure calculation: Na⁺/K⁺, Mg²⁺ and each dNTP in mM, oligo in nM |
+| `--tm-method`, `--salt-correction` | santalucia, santalucia | Tm formula (`santalucia`, `breslauer`) and salt correction (`santalucia`, `owczarzy`, `schildkraut`) |
+| `--structure-temp` | 37 | temperature (°C) at which hairpin and dimer ΔG are evaluated |
+| `--max-dimer-dg` | -9 | two primers of a pool whose dimer ΔG (kcal/mol) is below this form a dimer |
 | `-i`/`--aligned`, `--aligner`, `--reference-id`, `--length-tolerance`, `--outlier-action`, `-v` | | as below |
 
 Exit codes: `0` every amplicon reaches `--min-coverage`, `2` at least one does not (outputs are
@@ -262,7 +268,7 @@ reference has no bases where the amplicon falls (for example a partial genome), 
 coordinates are left empty and `note` says `amplicon not on reference <id>`. Options shared
 with design mode (`-i`/`--aligned`, `--aligner`, `--reference-id`, `--length-tolerance`,
 `--outlier-action`, `--max-mismatches`, `--three-prime-window`, `--min-coverage`, `-v`) work
-the same; design-only options such as `--region` are rejected. Exit codes: `0` every pair meets
+the same, and `--background` adds sequences to scan for secondary sites (see Specificity check); design-only options such as `--region` are rejected. Exit codes: `0` every pair meets
 `--min-coverage`, `2` at least one does not (outputs are still written), `1` error.
 
 ### Pipeline (region design)
@@ -286,12 +292,59 @@ while it stays within `--gc-min`/`--gc-max`), and `*_tm_range` gives the
 lowest and highest Tm over all variants. `*_degenerate_bases` counts the
 IUPAC positions and `*_variants` the distinct oligos the primer stands for.
 
+### Specificity check
+
+Each tiling run scans every primer against **both strands of every input sequence** for places
+other than its own site where it could bind, using the matching rule below (at most
+`--max-mismatches` mismatches, the last `--three-prime-window` bases exact). `report.txt` lists, per
+primer, how many secondary sites there are and in how many sequences, and **unintended products**:
+two primers of one pool whose sites face each other no further apart than the longest allowed
+amplicon, where at least one of the two sites is secondary. A clean run says so.
+
+`vhirprimerlab check` does the same for primers you already have, once it has located each pair on
+the alignment (it needs the designed site to tell it from another one, so a pair it cannot locate, or
+whose site is ambiguous, is listed as "not scanned" with the reason). The pairs are taken to share
+one tube, and a product between primers of different pairs is only a risk if you mix them. The
+longest product reported is the longest intended amplicon plus a quarter.
+
+`--background FASTA` adds sequences the primers must not bind: a co-circulating virus, a host
+transcript. Every site found there counts as secondary. Keep it to what the primers could really
+meet; more than 10 Mb is refused, because the scan reads every base of it (about 5 MB took a few
+seconds). Only the sequences you give are scanned: this is not a search of a whole database, so a
+clean report does not rule out binding elsewhere, and a site is judged by mismatches alone, not by
+its stability or the product's yield.
+In the web app it is the **Sequences the primers must not bind** box under Advanced, for tiling, Pick by
+gene and check (the file stays on your computer in the browser version).
+
+### Reaction conditions
+
+Every melting temperature, hairpin, self-dimer and primer-dimer calculation is made for one set of
+conditions, given by `--mv-conc`, `--dv-conc`, `--dntp-conc`, `--dna-conc`, `--tm-method` and
+`--salt-correction` (and, for the structure calculations, `--structure-temp`). The defaults are
+primer3-py's own: 50 mM Na⁺/K⁺, 1.5 mM Mg²⁺, 0.6 mM of each dNTP and 50 nM oligo with the
+SantaLucia formula and salt correction. They are written out in `vhirprimerlab/thermo.py`, so a
+different primer3-py version cannot change them silently. Set them to your master mix: Mg²⁺ and
+dNTPs move Tm by several degrees, and `--tm-min/--tm-opt/--tm-max` are Tm *at these conditions*.
+The same options work in `check` mode and in the web app (Advanced, "Reaction conditions"). The
+conditions in force are listed under Settings in `report.txt`.
+
+`--max-dimer-dg` is the ΔG below which two primers of a pool count as a dimer, at
+`--structure-temp`. The default (-9 kcal/mol at 37 °C) is primer3's usual rule of thumb, and is
+stricter than the annealing temperature of a PCR would suggest, so a dimer reported at 37 °C is a
+risk to check, not proof that the pool fails.
+
 ### Matching rules (all modes)
 
 A primer matches a sequence when it has at most `--max-mismatches` mismatches **and** none in the
 last `--three-prime-window` bases of its 3′ end. A pair covers a sequence when both primers match.
 
-- A gap, `N` or any ambiguous base in the sequence counts as a mismatch.
+- A gap counts as a mismatch.
+- An `N` or other ambiguous base in the sequence is *unknown*, not different: when it could be the
+  primer's base (`N`, or `R` against `A`) it is forgiven, up to `--max-ambiguous` of them per primer
+  (default 2); further ones count as mismatches, so a run of `N` still fails. One that cannot be
+  the primer's base (`Y` against `A`) is a mismatch. Within the last `--three-prime-window` bases an
+  unknown base fails the primer (reported as "ambiguous 3' base"), because it cannot be trusted
+  there. `--max-ambiguous 0` counts every one of them as a mismatch.
 - Each base the sequence has in addition to the primer (an insertion) counts as one mismatch.
 - A degenerate primer base matches any base it stands for (`R` matches `A` and `G`).
 
@@ -332,6 +385,7 @@ Regions are designed independently and may overlap.
 | `--length-tolerance` | 0.10 | allowed deviation from median length (fraction) |
 | `--outlier-action` | `drop` | `warn`, `drop` or `abort` |
 | `--max-mismatches` | 2 | max mismatches per primer |
+| `--max-ambiguous` | 2 | `N`/ambiguous bases in a sequence forgiven per primer (not at the 3′ end) |
 | `--three-prime-window` | 5 | 3′ bases that must match exactly |
 | `--min-coverage` | 95 | minimum coverage (%) |
 | `--allow-degenerate` | off | allow IUPAC bases at variable positions |

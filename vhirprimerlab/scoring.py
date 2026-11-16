@@ -41,12 +41,26 @@ def match_primer(
 
     mismatches = 0
     in_window = 0
+    unknown_in_window = 0
+    forgiven = 0
     for i, col in enumerate(cols):
-        s = row[col]
-        if s not in IUPAC[site[i]] or s not in "ACGT":
-            mismatches += 1
+        base = row[col]
+        wanted = IUPAC[site[i]]
+        have = IUPAC.get(base) if base != "-" else None
+        if have is not None and have <= wanted:
+            continue  # the base, or a code that only names bases the primer allows here
+        if have is not None and have & wanted:
+            # N, R, ...: the sequence may or may not match here; it is unknown, not different
             if i in window_idx:
-                in_window += 1
+                unknown_in_window += 1  # at the 3' end an unknown base cannot be trusted
+            elif forgiven < params.max_ambiguous:
+                forgiven += 1
+            else:
+                mismatches += 1
+            continue
+        mismatches += 1
+        if i in window_idx:
+            in_window += 1
 
     primer_cols = set(cols)
     for col in range(cols[0], cols[-1] + 1):
@@ -57,11 +71,13 @@ def match_primer(
 
     if in_window:
         reason: str | None = "3' mismatch"
+    elif unknown_in_window:
+        reason = "ambiguous 3' base"
     elif mismatches > params.max_mismatches:
         reason = "too many mismatches"
     else:
         reason = None
-    return MatchResult(reason is None, mismatches, in_window, reason)
+    return MatchResult(reason is None, mismatches, in_window + unknown_in_window, reason, forgiven)
 
 
 def score_pair(

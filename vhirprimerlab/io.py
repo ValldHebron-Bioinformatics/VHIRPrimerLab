@@ -6,6 +6,7 @@ import csv
 import logging
 from collections import Counter
 from datetime import datetime
+from itertools import compress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,7 +27,7 @@ from vhirprimerlab.models import (
     primer_names,
 )
 from vhirprimerlab.ranking import count_reasons
-from vhirprimerlab.structure import DIMER_DG
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 PER_PRIMER_DEGENERACY = [
     "forward_degenerate_bases", "reverse_degenerate_bases", "forward_variants", "reverse_variants",
@@ -39,6 +40,7 @@ def _degeneracy(fwd: str, rev: str) -> list[int]:
 
 if TYPE_CHECKING:
     from vhirprimerlab.coords import CoordMap
+    from vhirprimerlab.specificity import SpecificityReport
 
 log = logging.getLogger(__name__)
 
@@ -90,8 +92,20 @@ def alignment_from_records(records: list[Record]) -> Alignment:
                 f"Aligned sequences differ in length: '{r.id}' has {len(r.seq)} columns, "
                 f"'{records[0].id}' has {width}"
             )
-    keep = [c for c in range(width) if any(r.seq[c] != "-" for r in records)]
-    rows = ["".join(r.seq[c] for c in keep) for r in records]
+    # A column is kept when some row has a base there. One bit per column and row (1 = not a gap),
+    # OR-ed together, finds the all-gap columns without visiting every cell from Python.
+    chars = set().union(*(set(r.seq) for r in records))
+    table = {ord(c): "1" for c in chars}
+    table[ord("-")] = "0"
+    present = 0
+    for r in records:
+        present |= int(r.seq.translate(table), 2) if width else 0
+    flags = bin(present)[2:].zfill(width)
+    if "0" in flags:
+        keep = [bit == "1" for bit in flags]
+        rows = ["".join(compress(r.seq, keep)) for r in records]
+    else:
+        rows = [r.seq for r in records]
     return Alignment(ids=[r.id for r in records], rows=rows)
 
 
@@ -302,7 +316,7 @@ def write_check_tsv(results: list[CheckResult], cmap: CoordMap, path: Path) -> N
             ])
 
 
-def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
+def _pair_section(res: CheckResult, cmap: CoordMap, thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     a, cov = res.assay, res.coverage
     title = f"Pair {a.name}"
     n_total = len(cov.covered) + len(cov.not_covered)
@@ -325,7 +339,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
     for side, problems in (("Forward", res.fwd_structure), ("Reverse", res.rev_structure)):
         lines.append(f"{side} structure: {'; '.join(problems) or 'ok'}")
     if res.pair_dimer_dg is not None:
-        dimer = "forms a dimer" if res.pair_dimer_dg < DIMER_DG else "ok"
+        dimer = "forms a dimer" if res.pair_dimer_dg < thermo.max_dimer_dg else "ok"
         lines.append(f"Forward x reverse: ΔG {res.pair_dimer_dg / 1000:.1f} kcal/mol ({dimer})")
     note = _note(res, cmap)
     if res.located and note:
@@ -339,7 +353,7 @@ def _pair_section(res: CheckResult, cmap: CoordMap) -> list[str]:
 def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
     out = _header_lines(report, "VHIRPrimerLab check report")
     for res in report.results:
-        out += _pair_section(res, cmap) + [""]
+        out += _pair_section(res, cmap, report.thermo) + [""]
     low = [res.assay.name for res in report.results if res.below_threshold]
     out += ["Summary", "-------"]
     if low:
@@ -348,7 +362,15 @@ def write_check_report(report: CheckReport, cmap: CoordMap, path: Path) -> None:
         out.append("Every pair meets --min-coverage.")
     out += ["", "Dimers between pairs (if mixed in one tube)", "-------------------------------------------"]
     out += [f"{a} x {b}: ΔG {dg / 1000:.1f} kcal/mol" for a, b, dg in report.dimers] or [
-        f"None below {DIMER_DG / 1000:g} kcal/mol."]
+        f"None below {report.thermo.max_dimer_dg / 1000:g} kcal/mol."]
+    if report.specificity is not None or report.specificity_notes:
+        out += ["", "Specificity", "-----------"]
+        if report.specificity is not None:
+            out += specificity_lines(report.specificity, report.params)
+            if len(report.results) > 1:
+                out.append("  Pairs are taken to share one tube: a product between primers of different "
+                           "pairs only forms if you mix them.")
+        out += [f"  {note}" for note in report.specificity_notes]
     out += ["", "Log", "---", *report.log_lines]
     Path(path).write_text("\n".join(out) + "\n")
 
@@ -428,6 +450,37 @@ def advice_line(adv: EdgeAdvice) -> str:
             f"{adv.edge_after:.1f} %: add --max-{adv.end}-loss {adv.limit}")
 
 
+def specificity_lines(spec: SpecificityReport, params: dict[str, object]) -> list[str]:
+    """The report's Specificity section: secondary binding sites and the products they could make."""
+    rule = (f"a site has at most {params.get('max_mismatches', 2)} mismatches and the last "
+            f"{params.get('three_prime_window', 5)} bases exact")
+    scanned = f" and {spec.n_background} background sequence(s)" if spec.n_background else ""
+    out = [f"  Both strands of every input sequence{scanned} were scanned for other places each primer "
+           f"could bind ({rule})."]
+    if spec.clean:
+        return out + ["  No secondary binding sites found."]
+    for p in spec.primers:
+        if p.off_target_sites:
+            out.append(f"  {p.name}: {p.off_target_sites} secondary site(s) in {p.sequences} "
+                       f"sequence(s), the closest with {p.fewest_mismatches} mismatch(es)")
+        if p.background_sites:
+            out.append(f"  {p.name}: {p.background_sites} site(s) in the background sequences")
+    if spec.products:
+        out.append("  Unintended products (two primers of one pool facing each other, at least one "
+                   "at a secondary site):")
+        for pr in spec.products:
+            size = (f"{pr.length_min} bp" if pr.length_min == pr.length_max
+                    else f"{pr.length_min}-{pr.length_max} bp")
+            secondary = [f"{n} at a secondary site" for n, flag in
+                         ((pr.fwd, pr.fwd_secondary), (pr.rev, pr.rev_secondary)) if flag]
+            where = "background sequence" if pr.background else "sequence(s)"
+            out.append(f"    pool {pr.pool}: {pr.fwd} × {pr.rev}, {size}, in {pr.sequences} {where} "
+                       f"(e.g. {pr.example}); {', '.join(secondary)}")
+        if spec.n_products > len(spec.products):
+            out.append(f"    ... and {spec.n_products - len(spec.products)} more")
+    return out
+
+
 def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> None:
     res, mc = report.result, report.min_coverage
     g = res.geometry
@@ -452,6 +505,11 @@ def write_tiling_report(report: TilingReport, cmap: CoordMap, path: Path) -> Non
             out += [f"      {reason}: {n}" for reason, n in count_reasons(a.coverage.not_covered)]
     out += ["", "Primer dimers", "-------------"]
     out += [f"  {w}" for w in res.dimer_warnings] or ["none"]
+    if res.specificity is not None:
+        out += ["", "Specificity", "-----------"] + specificity_lines(res.specificity, report.params)
+    if res.pool_warnings:
+        out += ["", "Overlapping amplicons in one pool", "---------------------------------"]
+        out += [f"  {w}" for w in res.pool_warnings]
     if res.edge_advice:
         out += ["", "Edge advice", "-----------",
                 "  The result above is what you asked for; these re-runs would do better:"]

@@ -415,13 +415,13 @@ def test_not_located_is_below_threshold_even_at_zero_coverage() -> None:
 def test_cross_dimers_skip_own_pair_and_sort(monkeypatch) -> None:
     from types import SimpleNamespace
 
-    from vhirprimerlab import structure
+    from vhirprimerlab import thermo
     from vhirprimerlab.check import cross_dimers
 
     strong = {frozenset({"AAAA", "CCCC"}): -12000.0, frozenset({"AAAA", "GGGG"}): -15000.0,
               frozenset({"AAAA", "TTTT"}): -20000.0}  # AAAA x TTTT is one pair: not reported
-    monkeypatch.setattr(structure.primer3, "calc_heterodimer",
-                        lambda a, b: SimpleNamespace(dg=strong.get(frozenset({a, b}), -1000.0)))
+    monkeypatch.setattr(thermo.primer3, "calc_heterodimer",
+                        lambda a, b, **_: SimpleNamespace(tm=0.0, dg=strong.get(frozenset({a, b}), -1000.0)))
     dimers = cross_dimers([Assay("P1", "AAAA", "TTTT"), Assay("P2", "CCCC", "GGGG")])
     assert dimers == [("P1 forward", "P2 reverse", -15000.0), ("P1 forward", "P2 forward", -12000.0)]
 

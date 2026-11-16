@@ -10,7 +10,6 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
-import primer3
 from Bio.Seq import reverse_complement
 
 from vhirprimerlab.degenerate import fold, gc_percent, tm_range
@@ -26,7 +25,8 @@ from vhirprimerlab.models import (
 )
 from vhirprimerlab.regions import NAME_RE
 from vhirprimerlab.scoring import IUPAC, score_pair
-from vhirprimerlab.structure import DIMER_DG, dimer_dg, structure_report
+from vhirprimerlab.structure import dimer_dg, structure_report
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 log = logging.getLogger("vhirprimerlab")
 
@@ -213,32 +213,33 @@ def locate(site: str, consensus_seq: str) -> Location | None:
     return Location(starts[0], best) if len(starts) == 1 else None
 
 
-def _tm(primer: str, label: str, notes: list[str]) -> tuple[float | None, tuple[float, float] | None]:
+def _tm(primer: str, label: str, notes: list[str],
+        thermo: Thermo) -> tuple[float | None, tuple[float, float] | None]:
     n = fold(primer)
     if n == 1:
-        return primer3.calc_tm(primer), None
+        return thermo.tm(primer), None
     if n > TM_FOLD_LIMIT:
         notes.append(f"Tm not computed: {label} fold {n} > {TM_FOLD_LIMIT}")
         return None, None
-    lo, hi = tm_range(primer)
+    lo, hi = tm_range(primer, thermo)
     return (lo + hi) / 2, (lo, hi)
 
 
-def _structure(primer: str) -> list[str]:
+def _structure(primer: str, thermo: Thermo) -> list[str]:
     n = fold(primer)
     if n > STRUCTURE_FOLD_LIMIT:
         return [f"hairpins and self-dimers not checked: {n} variants > {STRUCTURE_FOLD_LIMIT}"]
-    return structure_report(primer)
+    return structure_report(primer, thermo)
 
 
-def _dimer_dg(a: str, b: str) -> float | None:
+def _dimer_dg(a: str, b: str, thermo: Thermo) -> float | None:
     if fold(a) * fold(b) > STRUCTURE_FOLD_LIMIT ** 2:
         return None
-    return dimer_dg(a, b)
+    return dimer_dg(a, b, thermo)
 
 
-def cross_dimers(assays: list[Assay]) -> list[tuple[str, str, float]]:
-    """Primers of different pairs that stick to each other (ΔG below DIMER_DG, cal/mol).
+def cross_dimers(assays: list[Assay], thermo: Thermo = DEFAULT_THERMO) -> list[tuple[str, str, float]]:
+    """Primers of different pairs that stick to each other (ΔG below thermo.max_dimer_dg, cal/mol).
 
     This matters when the pairs share a tube; forward x reverse of one pair is checked
     by check_assay."""
@@ -248,14 +249,15 @@ def cross_dimers(assays: list[Assay]) -> list[tuple[str, str, float]]:
     for (na, pa, a), (nb, pb, b) in itertools.combinations(primers, 2):
         if pa == pb:
             continue
-        dg = _dimer_dg(a, b)
-        if dg is not None and dg < DIMER_DG:
+        dg = _dimer_dg(a, b, thermo)
+        if dg is not None and dg < thermo.max_dimer_dg:
             out.append((na, nb, dg))
     return sorted(out, key=lambda d: d[2])
 
 
 def check_assay(
-    assay: Assay, aln: Alignment, cons: Consensus, params: ScoringParams, min_coverage: float
+    assay: Assay, aln: Alignment, cons: Consensus, params: ScoringParams, min_coverage: float,
+    thermo: Thermo = DEFAULT_THERMO,
 ) -> CheckResult:
     """Locate both primers on the consensus and score the pair on every sequence."""
     notes: list[str] = []
@@ -294,8 +296,8 @@ def check_assay(
     else:
         coverage = PairCoverage([], {sid: "not located" for sid in aln.ids}, 0.0)
 
-    fwd_tm, fwd_range = _tm(assay.forward, "fwd", notes)
-    rev_tm, rev_range = _tm(assay.reverse, "rev", notes)
+    fwd_tm, fwd_range = _tm(assay.forward, "fwd", notes, thermo)
+    rev_tm, rev_range = _tm(assay.reverse, "rev", notes, thermo)
     return CheckResult(
         assay=assay, located=located, note="; ".join(notes), fwd=fwd, rev=rev,
         fwd_cols=list(fwd_cols), rev_cols=list(rev_cols), coverage=coverage,
@@ -303,15 +305,16 @@ def check_assay(
         fwd_gc=gc_percent(assay.forward), rev_gc=gc_percent(assay.reverse),
         degenerate=fold(assay.forward) > 1 or fold(assay.reverse) > 1,
         below_threshold=not located or coverage.coverage_pct < min_coverage,
-        fwd_structure=_structure(assay.forward), rev_structure=_structure(assay.reverse),
-        pair_dimer_dg=_dimer_dg(assay.forward, assay.reverse),
+        fwd_structure=_structure(assay.forward, thermo), rev_structure=_structure(assay.reverse, thermo),
+        pair_dimer_dg=_dimer_dg(assay.forward, assay.reverse, thermo),
     )
 
 
 MAX_CROSS_WARNINGS = 10
 
 
-def structure_warnings(results: list[CheckResult], dimers: list[tuple[str, str, float]]) -> list[str]:
+def structure_warnings(results: list[CheckResult], dimers: list[tuple[str, str, float]],
+                       thermo: Thermo = DEFAULT_THERMO) -> list[str]:
     """One line per primer that folds or sticks to itself, per pair whose primers stick to
     each other, and per primer pair across pairs (only the strongest few)."""
     out: list[str] = []
@@ -319,7 +322,7 @@ def structure_warnings(results: list[CheckResult], dimers: list[tuple[str, str, 
         for side, problems in (("forward", res.fwd_structure), ("reverse", res.rev_structure)):
             if problems:
                 out.append(f"Primer structure: {res.assay.name} {side}: {'; '.join(problems)}")
-        if res.pair_dimer_dg is not None and res.pair_dimer_dg < DIMER_DG:
+        if res.pair_dimer_dg is not None and res.pair_dimer_dg < thermo.max_dimer_dg:
             out.append(f"Primer dimer: {res.assay.name} forward × reverse, "
                        f"ΔG {res.pair_dimer_dg / 1000:.1f} kcal/mol")
     for a, b, dg in dimers[:MAX_CROSS_WARNINGS]:

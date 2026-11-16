@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections import Counter
 
 import pytest
@@ -148,3 +149,19 @@ def test_end_rules_follow_the_span(family) -> None:
     # inside the span's first 50 bases the end rules apply: longer primers, any GC
     near = [c for c in fwds if end_loss(c, (1000, 2999)) <= 50]
     assert near and any(c.length > 25 or c.gc < 40 for c in near)
+
+
+def test_raising_the_end_allowance_never_removes_a_primer() -> None:
+    # The end rules (up to 32 nt, free GC) pick the lowest-penalty length. When that one folds on
+    # itself the anchor lost its primer, though a shorter one passes the ordinary rules. Allowing
+    # more loss then made the tiling's own advice ("the closest primer leaves 59 nt out; set
+    # --max-start-loss to 59") wrong: at 59 the closest primer left 60.
+    seq = "GCGCCCTCCTGAAGTGCGTGGACACTCGCTATGAATCTCTGATTTACCCACTCTGCCAAA"
+    tight = dataclasses.replace(PARAMS, max_start_loss=0, max_end_loss=0)
+    loose = dataclasses.replace(PARAMS, max_start_loss=50, max_end_loss=50)
+    anchors = lambda cs: {(c.strand, c.end if c.strand == "+" else c.start) for c in cs}  # noqa: E731
+    f0, r0 = enumerate_primers(seq, tight)
+    f1, r1 = enumerate_primers(seq, loose)
+    assert ("+", 36) in anchors(f0)
+    assert anchors(f0) <= anchors(f1)
+    assert anchors(r0) <= anchors(r1)

@@ -166,3 +166,25 @@ def test_the_order_sheet_follows_the_amplicon_name(run) -> None:
     )
     assert tiling_order(renamed)[0][0] == "F_LEFT"
     assert tiling_order(result)[0][0] == "VHIRPrimerLab_1_LEFT"
+
+
+def test_report_lists_secondary_sites_and_products(run, tmp_path: Path) -> None:
+    from vhirprimerlab.specificity import OffTargetProduct, PrimerSpecificity, SpecificityReport
+
+    result, cmap, records = run
+    spec = SpecificityReport(
+        primers=[PrimerSpecificity("P_1_LEFT", 1, 3, 2, 1), PrimerSpecificity("P_1_RIGHT", 1, 0, 0, None)],
+        products=[OffTargetProduct(1, "P_1_LEFT", "P_1_RIGHT", True, False, 2, 640, 655, "g01", False)],
+        n_products=3)
+    write_tiling_report(_report(dataclasses.replace(result, specificity=spec), records), cmap,
+                        tmp_path / "r.txt")
+    text = (tmp_path / "r.txt").read_text()
+    assert "P_1_LEFT: 3 secondary site(s) in 2 sequence(s), the closest with 1 mismatch(es)" in text
+    assert "pool 1: P_1_LEFT × P_1_RIGHT, 640-655 bp, in 2 sequence(s) (e.g. g01); P_1_LEFT at a secondary site" in text
+    assert "... and 2 more" in text and "P_1_RIGHT:" not in text.split("Specificity")[1]
+
+
+def test_report_omits_specificity_when_it_was_not_run(run, tmp_path: Path) -> None:
+    result, cmap, records = run
+    write_tiling_report(_report(result, records), cmap, tmp_path / "r.txt")
+    assert "Specificity" not in (tmp_path / "r.txt").read_text()
