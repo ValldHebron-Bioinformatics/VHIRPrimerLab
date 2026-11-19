@@ -16,7 +16,8 @@ def test_named_spec() -> None:
     assert parse_region_spec("E1:900-1350", 2) == Region("E1", 900, 1350)
 
 
-@pytest.mark.parametrize("bad", ["abc", "10-", "5-5", "9-3", "x y:1-9", "0-10", ":1-9"])
+@pytest.mark.parametrize("bad", ["abc", "10-", "5-5", "9-3", "x y:1-9", "0-10", ":1-9",
+                                 "-x:1-9"])  # a leading '-' would read as an option on a command line
 def test_bad_spec(bad: str) -> None:
     with pytest.raises(PipelineError):
         parse_region_spec(bad, 1)

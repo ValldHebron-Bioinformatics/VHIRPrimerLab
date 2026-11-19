@@ -331,7 +331,7 @@ import {
   const laneOf = (f) => (f.kind === 'gene' ? 0 : f.kind === 'CDS' ? 1 : 2);
   // A span's name becomes the prefix of every primer name in the order sheet, and the engine
   // accepts only letters, digits, _ . - in it. A feature named after its product has spaces.
-  const spanName = (name) => name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '') || 'span';
+  const spanName = (name) => name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^[_-]+|_+$/g, '') || 'span';
   // The engine refuses two spans with the same name, which two features of one name would give.
   const freeName = (name, taken) => {
     if (!taken.has(name)) return name;

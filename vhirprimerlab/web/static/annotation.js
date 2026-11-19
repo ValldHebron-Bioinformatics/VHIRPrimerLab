@@ -3,6 +3,12 @@
    engine never does. */
 
 export const MAX_RECORD_LENGTH = 500_000;
+// The XML of a record at that cap (features and bases) is a few MB; anything past this is not one,
+// and the page parses it all on the main thread.
+const MAX_RESPONSE_CHARS = 10_000_000;
+const responseTooLarge = (accession, size) => new Error(
+  `NCBI's answer for ${accession} is too large to read here (${(size / 1e6).toFixed(0)} MB). `
+  + 'Use a gene record instead of a chromosome.');
 
 const EUTILS = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
 // The version is part of the key so a change to what is kept of a record (the kinds, the
@@ -101,8 +107,11 @@ function buildFeatures(raw) {
 }
 
 const ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+// A reference beyond Unicode (or a surrogate) would make String.fromCodePoint throw and take the
+// whole record with it, so it becomes the replacement character instead.
+const codePoint = (n) => (n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF) ? '�' : String.fromCodePoint(n));
 const unescapeXml = (s) => s.replace(/&(?:#(\d+)|#x([0-9a-fA-F]+)|(lt|gt|quot|apos|amp));/g,
-  (_, dec, hex, name) => (name ? ENTITIES[name] : String.fromCodePoint(dec ? +dec : parseInt(hex, 16))));
+  (_, dec, hex, name) => (name ? ENTITIES[name] : codePoint(dec ? +dec : parseInt(hex, 16))));
 
 // One reader for the page, a worker and Node, so none depends on DOMParser. NCBI's
 // XML is machine-generated and regular (no attributes, no nesting of the tags read here).
@@ -353,8 +362,12 @@ export async function fetchAnnotation(accession, {
   const url = `${EUTILS}/efetch.fcgi?db=nuccore&rettype=gbc&retmode=xml&id=${encodeURIComponent(accession)}`;
   const response = await getWithRetry(fetch, url, wait);
   if (!response.ok) throw httpError(response.status, accession);
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (declared > MAX_RESPONSE_CHARS) throw responseTooLarge(accession, declared);
 
-  const annotation = parseInsdseq(await response.text());
+  const text = await response.text();
+  if (text.length > MAX_RESPONSE_CHARS) throw responseTooLarge(accession, text.length);
+  const annotation = parseInsdseq(text);
   // Backstop for when esummary was unavailable or left the length out.
   if (annotation.length > MAX_RECORD_LENGTH) throw tooLong(accession, annotation.length);
   writeCache(storage, key, annotation);
