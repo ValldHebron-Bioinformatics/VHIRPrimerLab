@@ -80,6 +80,31 @@ def match_primer(
     return MatchResult(reason is None, mismatches, in_window + unknown_in_window, reason, forgiven)
 
 
+class RowMatcher:
+    """match_primer, worked out once per distinct primer site and stretch of sequence under it.
+
+    match_primer reads nothing of a row but the columns from the primer's first to its last, so two
+    rows that agree there get the same answer. Related genomes agree there far more often than not,
+    and degenerate design asks for the same site against every row thousands of times, so a matcher
+    kept for the length of one design saves most of those calls without changing a result.
+    """
+
+    def __init__(self, params: ScoringParams) -> None:
+        self.params = params
+        self._memo: dict[tuple, MatchResult] = {}
+        self._cols: dict[int, tuple[list[int], tuple[int, ...]]] = {}
+
+    def __call__(self, site: str, cols: list[int], row: str, three_prime: ThreePrime) -> MatchResult:
+        entry = self._cols.get(id(cols))
+        if entry is None or entry[0] is not cols:   # keeps the list alive, so its id stays its own
+            entry = self._cols[id(cols)] = (cols, tuple(cols))
+        key = (site, three_prime, entry[1], row[cols[0]:cols[-1] + 1])
+        found = self._memo.get(key)
+        if found is None:
+            found = self._memo[key] = match_primer(site, cols, row, three_prime, self.params)
+        return found
+
+
 def score_pair(
     fwd_site: str,
     fwd_cols: list[int],
@@ -87,13 +112,19 @@ def score_pair(
     rev_cols: list[int],
     aln: Alignment,
     params: ScoringParams,
+    matcher: RowMatcher | None = None,
 ) -> PairCoverage:
-    """Coverage of a primer pair: sequences where both primers match."""
+    """Coverage of a primer pair: sequences where both primers match.
+
+    A matcher kept by the caller across calls (see RowMatcher) makes repeated scoring of the same
+    primers against the same rows cheap; without one, rows that agree under a primer share a result
+    within this call."""
     covered: list[str] = []
     not_covered: dict[str, str] = {}
+    match = matcher or RowMatcher(params)
     for sid, row in zip(aln.ids, aln.rows):
-        fwd = match_primer(fwd_site, fwd_cols, row, "right", params)
-        rev = match_primer(rev_site, rev_cols, row, "left", params)
+        fwd = match(fwd_site, fwd_cols, row, "right")
+        rev = match(rev_site, rev_cols, row, "left")
         if fwd.ok and rev.ok:
             covered.append(sid)
         else:
