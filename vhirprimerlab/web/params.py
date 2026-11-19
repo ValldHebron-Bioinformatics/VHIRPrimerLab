@@ -16,14 +16,14 @@ MODES = ("tile", "regions", "check", "genes")
 
 @dataclass(frozen=True)
 class Limits:
-    max_upload_mb: float = 20
-    max_seqs: int = 500
+    max_upload_mb: float = 20.0   # a float field is written as a float: the type of its default
+    max_seqs: int = 500           # decides how an environment variable is read
     max_seq_len: int = 35_000
     max_amplicons: int = 200
     max_queue: int = 20
     workers: int = 2
-    timeout_s: float = 900
-    retention_s: float = 86_400
+    timeout_s: float = 900.0
+    retention_s: float = 86_400.0
 
     @classmethod
     def from_env(cls) -> Limits:

@@ -22,7 +22,8 @@ conda activate primers
 pip install -e .
 ```
 
-Python ≥ 3.10 is required. Python dependencies are listed in `requirements.txt`; MAFFT (default)
+Python ≥ 3.10 is required. Python dependencies are listed in `pyproject.toml` (`requirements.txt`
+mirrors the core ones for the CI vulnerability audit); MAFFT (default)
 or MUSCLE 5 must be on `PATH` unless you pass a pre-aligned file with `--aligned`.
 
 ## Quick start: tile a genome
@@ -165,7 +166,23 @@ Server limits can be changed with environment variables: `VHIRPRIMERLAB_MAX_SEQS
 
 `tools/build_wasm.sh` rebuilds the compiled parts in `site/app/engine/` (primer3-py for
 Pyodide, and the MAFFT programs `mafft --auto` runs, for WebAssembly); `tools/build_site.py`
-assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it on every push to master.
+assembles the GitHub Pages site, and `.github/workflows/pages.yml` deploys it when a push to master
+changes the site, the package or the build, and only after the tests pass.
+
+### Preview the site on your computer
+
+Before merging a change to the web app, build the site the way Pages does and open it locally:
+
+```bash
+python tools/build_site.py /tmp/vhirprimerlab-site        # a new or empty folder; it refuses others
+python -m http.server 8080 -d /tmp/vhirprimerlab-site
+```
+
+Then open http://localhost:8080/ (landing page) and http://localhost:8080/app/ (the app). The first
+build downloads Pyodide and checks every file against the hashes in `tools/pyodide-0.27.7.json`, so
+it needs the network; run the two commands again after each change. `vhirprimerlab web` also serves
+the app from the Python package, with the analysis on the server, which is quicker for editing the
+page but is not what Pages runs.
 
 ## Pick by gene
 
@@ -182,7 +199,9 @@ click the genes you want and get primers covering them instead of counting ampli
    the button under the box, takes a record you already have and needs no network at all.
    "Find the best match" does not need you to know the organism: it fetches each record of the
    list (plus any name or accession typed in the box) from NCBI and picks the one that shares the
-   most exact sequence with your reference.
+   most exact sequence with your reference. "Try the example" in this mode loads twelve real human
+   metapneumovirus genomes, so the button has something to find; the examples of the other modes
+   are synthetic and match no real virus.
 3. Click the genes on the drawing; drag the handles of a picked span to adjust it. A gene the
    anchor map cannot place on your reference is greyed and cannot be clicked.
 4. Press Design. Each span is tiled on its own and the whole scheme comes back as usual: the
@@ -330,7 +349,7 @@ SantaLucia formula and salt correction. They are written out in `vhirprimerlab/t
 different primer3-py version cannot change them silently. Set them to your master mix: Mg²⁺ and
 dNTPs move Tm by several degrees, and `--tm-min/--tm-opt/--tm-max` are Tm *at these conditions*.
 The same options work in `check` mode and in the web app (Advanced, "Reaction conditions"). The
-conditions in force are listed under Settings in `report.txt`.
+conditions in force are listed under Parameters in `report.txt`.
 
 `--max-dimer-dg` is the ΔG below which two primers of a pool count as a dimer, at
 `--structure-temp`. The default (-9 kcal/mol at 37 °C) is primer3's usual rule of thumb, and is
@@ -405,7 +424,8 @@ Regions are designed independently and may overlap.
   `sequence` rows (`<region>_LEFT`, `<region>_RIGHT`).
 - `pairs.tsv` — one row per reported pair: `region, rank, forward_seq, reverse_seq, forward_tm,
   reverse_tm, forward_gc, reverse_gc, forward_len, reverse_len, amplicon_start, amplicon_end,
-  amplicon_len, coverage_pct, n_covered, n_total, degenerate, forward_tm_range, reverse_tm_range,
+  amplicon_len, coverage_pct, n_covered, n_total, degenerate, forward_degenerate_bases,
+  reverse_degenerate_bases, forward_variants, reverse_variants, forward_tm_range, reverse_tm_range,
   penalty, below_threshold, not_covered`. Amplicon coordinates are on the reference; `rank`
   restarts at 1 for each region; `not_covered` lists `ID(reason)` for every missed sequence. Tm
   ranges are given for degenerate primers (min–max over all expansions).
@@ -424,8 +444,29 @@ Regions are designed independently and may overlap.
 ## Tests
 
 ```bash
-pytest
+pip install -e ".[dev,web]"        # pytest, and the web dependencies the API tests need
+python -m pytest
 ```
 
+Use the Python of the environment where you installed the package (it needs Python ≥ 3.10).
 Tests use a synthetic family (`tests/synthetic.py`); those that run MAFFT are skipped if it is not
 installed.
+
+The browser app has its own Node tests (Node 20.19 or 22.7 and newer), run by `pytest` when Node and
+Pyodide are available, or on their own:
+
+```bash
+cd tests/browser && npm ci
+PYTHON=$(which python) npm test
+```
+
+GitHub Actions runs everything on Python 3.10 to 3.12 for each pull request, and the Pages deploy
+waits for it. There, `REQUIRE_BROWSER_TESTS=1` turns a missing Node, Pyodide or engine file into a
+failure instead of a skipped test.
+
+## Licence
+
+VHIRPrimerLab is free software under the GNU General Public License, version 3 or (at your option)
+any later version; see `LICENSE`. The programs and data it ships or downloads for the web app
+(primer3-py, MAFFT, Pyodide, Biopython, NumPy, and the Raleway and Geist Mono fonts) keep their own
+licences, listed in [`THIRD_PARTY.md`](THIRD_PARTY.md).

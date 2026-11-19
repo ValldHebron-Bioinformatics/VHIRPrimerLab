@@ -26,11 +26,6 @@ import {
     writing: 'Writing the files…',
     done: 'Finishing…',
   };
-  const FILES = {
-    tile: ['primers.tsv', 'amplicons.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
-    regions: ['primers.tsv', 'pairs.tsv', 'report.txt', 'alignment.fasta'],
-    check: ['check.tsv', 'report.txt', 'alignment.fasta'],
-  };
 
   const state = { page: 'design', seqs: null, limits: null, job: null, map: null, result: null,
     engine: null, handle: null, hasResults: false, lastJob: null, background: null,
