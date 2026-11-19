@@ -8,7 +8,7 @@ relying on it (for example before redistributing the site elsewhere).
 
 | Component | Used for | Licence | Checked |
 |---|---|---|---|
-| [primer3-py](https://github.com/libnano/primer3-py) (wraps [primer3](https://github.com/primer3-org/primer3)) | Tm, hairpin and dimer calculations; the WebAssembly build in `site/app/engine/` is version 2.2.0 | GPL-2.0-or-later | The 2.3.1 package metadata says GPL-2.0-or-later, which is compatible with GPL-3.0-or-later. The 2.2.0 WebAssembly build is not checked; `site/app/engine/README.md` says GPL-2.0. If 2.2.0 were GPL-2.0-only it would not be compatible, so check its `LICENSE` |
+| [primer3-py](https://github.com/libnano/primer3-py) (wraps [primer3](https://github.com/primer3-org/primer3)) | Tm, hairpin and dimer calculations; the WebAssembly build in `site/app/engine/` is version 2.2.0 | GPL-2.0-or-later | Checked in the bundled 2.2.0 wheel: 39 of its source files say "either version 2 of the License, or (at your option) any later version", so it can be combined with this project under GPL-3.0. Its package metadata only says "GPLv2", which is a loose label, not a restriction to version 2 only. The 2.3.1 metadata (used by the command line) says GPL-2.0-or-later |
 | [MAFFT](https://mafft.cbrc.jp/alignment/software/) 7.526 | Alignment in the browser (WebAssembly) and on the command line (installed separately) | BSD-style | Checked: `site/app/engine/MAFFT-LICENSE.txt` |
 | [Pyodide](https://pyodide.org/) 0.27.7 | Python in the browser | MPL-2.0 | Not checked |
 | [Biopython](https://biopython.org/) | Sequence input and output | Biopython License Agreement (BSD-style) | Package metadata: `LicenseRef-Biopython-License-Agreement` |

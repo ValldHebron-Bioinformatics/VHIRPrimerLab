@@ -27,7 +27,7 @@ jobs:
       - name: Install MAFFT
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mafft
       - name: Install the package
-        run: pip install -e ".[dev,web]"
+        run: pip install -e ".[dev]"   # no web extra: the server-mode tests are not run
       - name: Install the browser test dependencies
         run: npm ci
         working-directory: tests/browser

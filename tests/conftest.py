@@ -11,6 +11,16 @@ from vhirprimerlab import thermo
 
 needs_mafft = pytest.mark.skipif(shutil.which("mafft") is None, reason="mafft not installed")
 
+# The server-mode tests import FastAPI at module level, so deselecting them is not enough on a
+# machine without the web extra: they must not be collected at all unless asked for (-m server).
+SERVER_TESTS = {"test_web_api.py", "test_web_jobs.py"}
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    if collection_path.name in SERVER_TESTS:
+        return "not server" in (config.getoption("markexpr") or "")
+    return None
+
 
 @pytest.fixture
 def family_base() -> str:

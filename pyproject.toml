@@ -31,3 +31,7 @@ vhirprimerlab = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# The server mode (FastAPI app and job runner) is not used: its tests are off by default.
+# Run them with `pytest -m server` (needs the web extra).
+addopts = "-m 'not server'"
+markers = ["server: tests of the FastAPI server mode, which the Pages site does not use"]

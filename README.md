@@ -444,9 +444,13 @@ Regions are designed independently and may overlap.
 ## Tests
 
 ```bash
-pip install -e ".[dev,web]"        # pytest, and the web dependencies the API tests need
+pip install -e ".[dev]"
 python -m pytest
 ```
+
+The tests of the server mode (`vhirprimerlab web`, the FastAPI app and its job runner) are not run
+by default, because the Pages site does not use it. To run them as well:
+`pip install -e ".[dev,web]"` and `python -m pytest -m server`.
 
 Use the Python of the environment where you installed the package (it needs Python ≥ 3.10).
 Tests use a synthetic family (`tests/synthetic.py`); those that run MAFFT are skipped if it is not
