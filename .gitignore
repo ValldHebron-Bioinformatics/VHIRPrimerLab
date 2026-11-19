@@ -15,3 +15,9 @@ site/assets/
 skills-lock.json
 tests/browser/node_modules/
 build/
+
+# Stray analysis outputs and local scratch in the repo root
+brag-output*/
+/*.fasta
+/*.tsv
+.playwright/

@@ -34,6 +34,20 @@ def test_file_without_header(tmp_path: Path) -> None:
     assert load_regions_file(p) == [Region("A", 1, 50)]
 
 
+def test_file_with_bom(tmp_path: Path) -> None:
+    p = tmp_path / "r.tsv"
+    p.write_bytes(b"\xef\xbb\xbfA\t1\t50\n")
+    assert load_regions_file(p) == [Region("A", 1, 50)]
+
+
+def test_typo_in_first_row_is_an_error_not_a_header(tmp_path: Path) -> None:
+    """'1O' (letter O) must not make the row vanish as if it were a header (CODE-001)."""
+    p = tmp_path / "r.tsv"
+    p.write_text("A\t1O\t50\nB\t60\t90\n")
+    with pytest.raises(PipelineError, match="line 1.*integers"):
+        load_regions_file(p)
+
+
 def test_file_bad_line_reports_line_number(tmp_path: Path) -> None:
     p = tmp_path / "r.tsv"
     p.write_text("A\t1\t50\nB\t1\n")

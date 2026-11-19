@@ -74,6 +74,7 @@ def test_repeated_questions_are_answered_from_the_cache_in_either_order() -> Non
     ({"structure_temp": 200.0}, "temperature"),
     ({"max_dimer_dg": 1000.0}, "dimer"),
     ({"mv_conc": float("nan")}, "monovalent"),
+    ({"mv_conc": 0.0, "dv_conc": 0.0}, "no salt"),  # Tm would be -273 °C and every primer fails
 ])
 def test_unusable_conditions_are_named(kwargs: dict, text: str) -> None:
     problems = Thermo(**kwargs).problems()

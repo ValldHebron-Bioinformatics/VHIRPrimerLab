@@ -6,6 +6,7 @@ import csv
 import logging
 from collections import Counter
 from datetime import datetime
+from io import StringIO
 from itertools import compress
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -52,7 +53,12 @@ def load_fasta(path: Path, allow_gaps: bool = False) -> list[Record]:
     path = Path(path)
     if not path.is_file():
         raise PipelineError(f"Input file not found: {path}")
-    text = path.read_text().replace("\r", "")
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")  # drops the BOM that Windows editors and Excel add
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    text = text.replace("\r", "")
     if not text.strip():
         raise PipelineError(f"Input file is empty: {path}")
     if not text.lstrip().startswith(">"):
@@ -60,17 +66,16 @@ def load_fasta(path: Path, allow_gaps: bool = False) -> list[Record]:
 
     allowed = IUPAC_NT | {"-"} if allow_gaps else IUPAC_NT
     records: list[Record] = []
-    with path.open() as handle:
-        for rec in SeqIO.parse(handle, "fasta"):
-            seq = "".join(str(rec.seq).split()).upper().replace("U", "T")
-            if not seq:
-                raise PipelineError(f"Sequence '{rec.id}' is empty")
-            for i, ch in enumerate(seq, start=1):
-                if ch not in allowed:
-                    raise PipelineError(
-                        f"Sequence '{rec.id}' has an invalid character at position {i}: '{ch}'"
-                    )
-            records.append(Record(rec.id, seq))
+    for rec in SeqIO.parse(StringIO(text), "fasta"):
+        seq = "".join(str(rec.seq).split()).upper().replace("U", "T")
+        if not seq:
+            raise PipelineError(f"Sequence '{rec.id}' is empty")
+        if not set(seq) <= allowed:  # the per-character scan only runs to name the culprit
+            i, ch = next((i, ch) for i, ch in enumerate(seq, start=1) if ch not in allowed)
+            raise PipelineError(
+                f"Sequence '{rec.id}' has an invalid character at position {i}: '{ch}'"
+            )
+        records.append(Record(rec.id, seq))
 
     if not records:
         raise PipelineError(f"Input file is empty: {path}")

@@ -120,6 +120,14 @@ def test_load_assays_too_short_for_window(tmp_path: Path) -> None:
         load_assays(_write(tmp_path, f"A1\tACGT\t{R}\n"), 5)
 
 
+@pytest.mark.parametrize("fwd", ["RYKMSWBDHVNNNNNNNNNN", "NNNNNNNNNNNNNNNNNNNN"])
+def test_load_assays_degenerate_first_row_is_not_a_header(tmp_path: Path, fwd: str) -> None:
+    """A valid but highly degenerate first primer must not be dropped as a header (CODE-002)."""
+    assays = load_assays(_write(tmp_path, f"A1\t{fwd}\t{R}\n"), 5)
+    assert [a.name for a in assays] == ["A1"]
+    assert assays[0].forward == fwd
+
+
 def test_load_assays_typo_on_first_line_is_not_a_header(tmp_path: Path) -> None:
     with pytest.raises(PipelineError, match=r"line 1: forward.*position 5.*'X'"):
         load_assays(_write(tmp_path, f"A1\tACGTXCGTACGTACGTAC\t{R}\n"), 5)
@@ -248,6 +256,28 @@ def test_check_assay_high_fold_skips_tm() -> None:
     assert TM_FOLD_LIMIT == 256
     assert res.fwd_tm is None and res.fwd_tm_range is None
     assert "Tm not computed: fwd fold 16777216 > 256" in res.note
+
+
+def test_check_assay_primer_over_60_nt_is_accepted_with_a_note() -> None:
+    """primer3 cannot fold an oligo over 60 nt (probes, long tailed primers); say so, don't crash."""
+    aln, cons = _family()
+    fwd = cons.seq[10:85]
+    rev = reverse_complement(cons.seq[110:130])
+    res = check_assay(Assay("P", fwd, rev), aln, cons, PARAMS, 95)
+    assert any("not checked" in n and "60" in n for n in res.fwd_structure)
+    assert not any("not checked" in n for n in res.rev_structure)
+    assert res.fwd_tm is not None
+    assert res.pair_dimer_dg is not None  # primer3 only needs one of the two to be <= 60 nt
+
+
+def test_check_assay_two_primers_over_60_nt_skip_the_pair_dimer() -> None:
+    aln, cons = _family()
+    fwd = cons.seq[10:85]
+    rev = reverse_complement(cons.seq[60:130])
+    res = check_assay(Assay("P", fwd, rev), aln, cons, PARAMS, 95)
+    assert res.pair_dimer_dg is None
+    assert any("not checked" in n for n in res.fwd_structure)
+    assert any("not checked" in n for n in res.rev_structure)
 
 
 def test_check_assay_wrong_orientation_warns(caplog: pytest.LogCaptureFixture) -> None:
