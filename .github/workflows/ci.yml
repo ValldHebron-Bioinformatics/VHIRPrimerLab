@@ -32,7 +32,9 @@ jobs:
         run: npm ci
         working-directory: tests/browser
       - name: Run the tests
-        run: pytest -q
+        run: pytest -q -rs
+        env:
+          REQUIRE_BROWSER_TESTS: "1"   # a missing Node/Pyodide/engine file must fail, not skip
 
   audit:
     runs-on: ubuntu-latest
