@@ -180,6 +180,9 @@ click the genes you want and get primers covering them instead of counting ampli
    genome is the genome, a short one is a single gene. Something that is plainly an accession
    (`NC_039199.1`) is loaded directly. Records over 500,000 nt are refused. "Load a GenBank file",
    the button under the box, takes a record you already have and needs no network at all.
+   "Find the best match" does not need you to know the organism: it fetches each record of the
+   list (plus any name or accession typed in the box) from NCBI and picks the one that shares the
+   most exact sequence with your reference.
 3. Click the genes on the drawing; drag the handles of a picked span to adjust it. A gene the
    anchor map cannot place on your reference is greyed and cannot be clicked.
 4. Press Design. Each span is tiled on its own and the whole scheme comes back as usual: the
@@ -190,9 +193,10 @@ click the genes you want and get primers covering them instead of counting ampli
    "Cover the whole genome instead", under the list, tiles the whole reference as the design page
    does.
 
-Your browser asks NCBI for the annotation and keeps it for next time; only the name or accession
-you type is sent, never your sequences, and the server makes no network call. A GenBank file needs
-no network at all, and neither does a list that fails to load.
+Your browser asks NCBI for the annotation and keeps it for next time. What is sent is the name or
+accession you type, or, for "Find the best match", the accessions of the list; never your
+sequences, and the server makes no network call. NCBI sees your browser's IP address, as for any
+request. A GenBank file needs no network at all, and neither does a list that fails to load.
 
 ## Advanced: target regions
 

@@ -11,8 +11,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -35,10 +33,16 @@ jobs:
       - run: npm ci
         working-directory: tests/browser
       - run: pytest -q
+        env:
+          REQUIRE_BROWSER_TESTS: "1"   # a missing engine file must fail here, not skip
 
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write      # only the job that publishes needs these two
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
