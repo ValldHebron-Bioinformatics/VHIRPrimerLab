@@ -9,3 +9,8 @@ updates:
   - package-ecosystem: npm
     directory: /tests/browser
     schedule: {interval: weekly}
+    # The engine the site ships is pinned in tools/pyodide-0.27.7.json (with hashes); this npm
+    # copy only mirrors it for the browser tests, so it moves together with that pin, by hand.
+    ignore:
+      - dependency-name: pyodide
+        update-types: ["version-update:semver-major"]
