@@ -86,6 +86,33 @@ test('the other modes do not gain a reference of their own', () => {
   assert.equal('reference_id' in build({ level: 'basic' })('check'), false);
 });
 
+// "Max variants per primer" has a different engine default per mode: 4 tiling, 8 for regions. The
+// page used to show 4 everywhere and send only what differed from that 4, so choosing 4 in regions
+// mode sent nothing and the run silently used 8. Each mode's default now rides on the input.
+function degeneracy(value, defaults = {}) {
+  return {
+    tagName: 'INPUT', type: 'number', value, defaultValue: '4',
+    dataset: { setting: 'max_degeneracy', ...defaults },
+    closest: () => ({ dataset: { modes: 'tile regions genes' } }),
+  };
+}
+
+test('the regions default for max variants is not sent, so the engine keeps its own', () => {
+  const out = build({ level: 'advanced', inputs: [degeneracy('8', { defaultRegions: '8' })] })('regions');
+  assert.equal('max_degeneracy' in out, false);
+});
+
+test('choosing 4 in regions mode is sent, even though 4 is the form default', () => {
+  const out = build({ level: 'advanced', inputs: [degeneracy('4', { defaultRegions: '8' })] })('regions');
+  assert.equal(out.max_degeneracy, 4);
+});
+
+test('tiling keeps 4 as its default and sends other values', () => {
+  const defaults = { defaultRegions: '8' };
+  assert.equal('max_degeneracy' in build({ level: 'advanced', inputs: [degeneracy('4', defaults)] })('tile'), false);
+  assert.equal(build({ level: 'advanced', inputs: [degeneracy('6', defaults)] })('tile').max_degeneracy, 6);
+});
+
 test('the loss limits sent are the full padding, whatever padding the spans achieved', () => {
   // One pair of flags covers every span: lowering it to the least a block achieved held every
   // span to the worst one, so picking a gene clamped at base 1 broke a gene that tiled on its
