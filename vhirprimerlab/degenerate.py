@@ -9,7 +9,7 @@ from typing import Callable
 
 
 from vhirprimerlab.models import Alignment, PairCoverage, ScoringParams
-from vhirprimerlab.scoring import CODE_FOR, IUPAC, ThreePrime, match_primer, score_pair
+from vhirprimerlab.scoring import CODE_FOR, IUPAC, RowMatcher, ThreePrime, match_primer, score_pair
 from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 BASES = "ACGT"
@@ -42,12 +42,14 @@ def _gc_ok(site: str, gc_limits: tuple[float, float] | None) -> bool:
 
 
 def _mismatch_burden(
-    sites: dict[str, str], cols: dict[str, list[int]], rows: list[str], params: ScoringParams
+    sites: dict[str, str], cols: dict[str, list[int]], rows: list[str], params: ScoringParams,
+    matcher: RowMatcher | None = None,
 ) -> int:
     """Total primer mismatches over all sequences (lower is better)."""
+    match = matcher or RowMatcher(params)
     return sum(
-        match_primer(sites["fwd"], cols["fwd"], row, "right", params).mismatches
-        + match_primer(sites["rev"], cols["rev"], row, "left", params).mismatches
+        match(sites["fwd"], cols["fwd"], row, "right").mismatches
+        + match(sites["rev"], cols["rev"], row, "left").mismatches
         for row in rows
     )
 
@@ -75,8 +77,9 @@ def degenerate_pair(
     sites = {"fwd": fwd_site, "rev": rev_site}
     cols = {"fwd": fwd_cols, "rev": rev_cols}
     rows = dict(zip(aln.ids, aln.rows))
-    cov = score_pair(sites["fwd"], fwd_cols, sites["rev"], rev_cols, aln, params)
-    burden = _mismatch_burden(sites, cols, aln.rows, params)
+    matcher = RowMatcher(params)   # a trial changes one primer, so the other's rows are reused
+    cov = score_pair(sites["fwd"], fwd_cols, sites["rev"], rev_cols, aln, params, matcher)
+    burden = _mismatch_burden(sites, cols, aln.rows, params, matcher)
     best_state = (dict(sites), cov)
 
     while cov.not_covered:
@@ -95,8 +98,8 @@ def degenerate_pair(
                     if fold(trial_site) > max_fold or not _gc_ok(trial_site, gc_limits):
                         continue
                     trial = dict(sites, **{which: trial_site})
-                    trial_cov = score_pair(trial["fwd"], fwd_cols, trial["rev"], rev_cols, aln, params)
-                    trial_burden = _mismatch_burden(trial, cols, aln.rows, params)
+                    trial_cov = score_pair(trial["fwd"], fwd_cols, trial["rev"], rev_cols, aln, params, matcher)
+                    trial_burden = _mismatch_burden(trial, cols, aln.rows, params, matcher)
                     gain = len(trial_cov.covered) - len(cov.covered)
                     dist_from_3p = n - 1 - i if which == "fwd" else i
                     key = (gain, burden - trial_burden, dist_from_3p, which == "fwd", -BASES.index(b))

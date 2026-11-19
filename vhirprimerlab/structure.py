@@ -10,7 +10,7 @@ from __future__ import annotations
 import itertools
 
 from vhirprimerlab.scoring import IUPAC
-from vhirprimerlab.thermo import DEFAULT_THERMO, DIMER_DG, Thermo
+from vhirprimerlab.thermo import DEFAULT_THERMO, Thermo
 
 MAX_STRUCTURE_TM = 47.0  # primer3's default limit for hairpin and self-dimer Tm
 MAX_END_GC = 3  # at most 3 G/C among the last 5 bases (3' end)

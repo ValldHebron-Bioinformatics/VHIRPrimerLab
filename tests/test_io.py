@@ -15,6 +15,13 @@ def test_empty_file_raises(tmp_path: Path) -> None:
         load_fasta(tmp_path / "e.fa")
 
 
+def test_utf8_bom_fasta_loads(tmp_path: Path) -> None:
+    """Windows editors and Excel exports put a BOM before the first '>' (CODE-003)."""
+    p = tmp_path / "bom.fa"
+    p.write_bytes(b"\xef\xbb\xbf>s1\nACGT\n>s2\nACGA\n")
+    assert [r.id for r in load_fasta(p)] == ["s1", "s2"]
+
+
 def test_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(PipelineError, match="not found"):
         load_fasta(tmp_path / "nope.fa")

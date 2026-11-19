@@ -32,6 +32,7 @@ log = logging.getLogger("vhirprimerlab")
 
 TM_FOLD_LIMIT = 256  # above this, enumerating every expansion for a Tm range is too slow
 STRUCTURE_FOLD_LIMIT = 64  # above this, checking every pair of variants is too slow
+MAX_FOLD_LEN = 60  # primer3 cannot compute hairpins or self-dimers of longer oligos
 NOT_DOWNSTREAM = "reverse site is not downstream of forward site"
 FORWARD_TAGS = {"LEFT", "F", "FWD", "FORWARD"}
 SIDE_RE = re.compile(r"(?P<pair>.+?)[_.-](?P<side>LEFT|RIGHT|FWD|REV|FORWARD|REVERSE|F|R)", re.I)
@@ -42,8 +43,10 @@ def _clean(field: str) -> str:
 
 
 def _looks_like_header(fwd: str) -> bool:
-    """A column title like 'forward' is mostly not A/C/G/T; a primer, even with a typo, is."""
-    return sum(ch in "ACGT" for ch in fwd) * 2 < len(fwd)
+    """A column title like 'forward' has letters that are not IUPAC codes and is mostly not
+    A/C/G/T. A primer is not: even a typo leaves it mostly A/C/G/T, and a highly degenerate
+    one (RYKM..., NNNN...) is made only of valid codes."""
+    return any(ch not in IUPAC for ch in fwd) and sum(ch in "ACGT" for ch in fwd) * 2 < len(fwd)
 
 
 def _check_oligo(seq: str, what: str, where: str, window: int) -> None:
@@ -227,12 +230,17 @@ def _tm(primer: str, label: str, notes: list[str],
 
 def _structure(primer: str, thermo: Thermo) -> list[str]:
     n = fold(primer)
+    if len(primer) > MAX_FOLD_LEN:
+        return [f"hairpins and self-dimers not checked: {len(primer)} nt > {MAX_FOLD_LEN} "
+                "(the limit of the folding software)"]
     if n > STRUCTURE_FOLD_LIMIT:
         return [f"hairpins and self-dimers not checked: {n} variants > {STRUCTURE_FOLD_LIMIT}"]
     return structure_report(primer, thermo)
 
 
 def _dimer_dg(a: str, b: str, thermo: Thermo) -> float | None:
+    if len(a) > MAX_FOLD_LEN and len(b) > MAX_FOLD_LEN:  # primer3 needs one of them <= 60 nt
+        return None
     if fold(a) * fold(b) > STRUCTURE_FOLD_LIMIT ** 2:
         return None
     return dimer_dg(a, b, thermo)

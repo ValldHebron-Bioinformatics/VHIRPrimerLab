@@ -158,6 +158,31 @@ ORIGIN
   assert.equal(f.name, 'W');
 });
 
+test('a character reference beyond Unicode is replaced, not thrown on', () => {
+  // String.fromCodePoint throws a RangeError above 0x10FFFF; one hostile or corrupt entity would
+  // otherwise make the whole record unreadable.
+  const xml = hmpvXml.replace(
+    /(<INSDQualifier_name>gene<\/INSDQualifier_name>\s*<INSDQualifier_value>)[^<]*/, '$1N&#x110000;P');
+  const { features } = parseInsdseq(xml);
+  assert.ok(features.some((f) => f.name === 'N�P'));
+});
+
+test('a response far larger than any record is refused before it is read', async () => {
+  let read = false;
+  const huge = route(async () => ({
+    ok: true, status: 200, headers: { get: () => '900000000' },
+    text: async () => { read = true; return ''; },
+  }), 1000);
+  await assert.rejects(fetchAnnotation('NC_1.1', { fetch: huge, storage: null, wait: noWait }), /too large/i);
+  assert.equal(read, false);
+});
+
+test('a response without a length header is refused once it turns out too large', async () => {
+  const body = 'x'.repeat(10_000_001);
+  await assert.rejects(
+    fetchAnnotation('NC_1.1', { fetch: okFetch(body, 1000), storage: null, wait: noWait }), /too large/i);
+});
+
 test('a record over the cap is refused', async () => {
   assert.equal(MAX_RECORD_LENGTH, 500_000);
   await assert.rejects(fetchAnnotation('NC_000000.1', { fetch: okFetch(bigRecordXml), storage: null }),

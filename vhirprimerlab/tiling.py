@@ -106,7 +106,7 @@ def min_amplicon_len(span_len: int, overlap: int, primer_len_max: int) -> int:
 
 
 def _popcount(x: int) -> int:
-    return bin(x).count("1")
+    return x.bit_count()
 
 
 def choose(

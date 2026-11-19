@@ -47,6 +47,9 @@ class Thermo:
         ):
             if not math.isfinite(value) or not ok(value):
                 out.append(f"the {label} is out of range ({value:g})")
+        if self.mv_conc == 0 and self.dv_conc == 0:
+            out.append("there is no salt (monovalent and divalent are both 0), "
+                       "so no primer would reach a usable Tm")
         if self.tm_method not in TM_METHODS:
             out.append(f"the Tm formula must be one of {', '.join(TM_METHODS)}")
         if self.salt_method not in SALT_METHODS:

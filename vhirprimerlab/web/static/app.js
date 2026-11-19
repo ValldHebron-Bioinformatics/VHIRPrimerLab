@@ -22,13 +22,9 @@ import {
     scoring: 'Checking primers against every sequence…',
     'choosing amplicons': 'Choosing the best set of amplicons…',
     'checking primer dimers': 'Checking primer dimers…',
+    'checking specificity': 'Looking for other places the primers could bind…',
     writing: 'Writing the files…',
     done: 'Finishing…',
-  };
-  const FILES = {
-    tile: ['primers.tsv', 'amplicons.tsv', 'scheme.bed', 'report.txt', 'alignment.fasta'],
-    regions: ['primers.tsv', 'pairs.tsv', 'report.txt', 'alignment.fasta'],
-    check: ['check.tsv', 'report.txt', 'alignment.fasta'],
   };
 
   const state = { page: 'design', seqs: null, limits: null, job: null, map: null, result: null,
@@ -103,6 +99,11 @@ import {
     document.querySelectorAll('[data-modes]').forEach((el) => {
       el.hidden = !el.dataset.modes.split(' ').includes(m);
     });
+    // Show each mode's own default for the fields that have one, unless the user has typed there.
+    const modeKey = `default${m[0].toUpperCase()}${m.slice(1)}`;
+    document.querySelectorAll('[data-default-regions]').forEach((input) => {
+      if (input.dataset.touched !== '1') input.value = input.dataset[modeKey] ?? input.defaultValue;
+    });
     document.querySelectorAll('.modes a').forEach((a) => {
       if (a.dataset.mode === state.page) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
@@ -160,7 +161,9 @@ import {
       return;
     }
     const L = state.limits || { max_seqs: 500, max_seq_len: 35000 };
-    const longest = Math.max(...parsed.lens);
+    // A loop, not Math.max(...lens): spreading one argument per record overflows the stack
+    // on a file with a few hundred thousand short records and left the page doing nothing.
+    const longest = parsed.lens.reduce((a, b) => (b > a ? b : a), 0);
     if (parsed.ids.length > L.max_seqs) {
       seqError(`${fmt(parsed.ids.length)} sequences: the web app accepts up to ${fmt(L.max_seqs)}. Use the command line for larger sets.`);
       return;
@@ -204,7 +207,8 @@ import {
       seqError(`${file.name} is larger than ${state.limits ? state.limits.max_upload_mb : 20} MB. Use the command line for larger inputs.`);
       return;
     }
-    file.text().then((text) => loadText(file.name, text));
+    file.text().then((text) => loadText(file.name, text))
+      .catch((err) => seqError(`Could not read ${file.name}: ${err && err.message ? err.message : err}`));
   }
 
   // ---------- amplicon size hint and planned layout ----------
@@ -331,7 +335,7 @@ import {
   const laneOf = (f) => (f.kind === 'gene' ? 0 : f.kind === 'CDS' ? 1 : 2);
   // A span's name becomes the prefix of every primer name in the order sheet, and the engine
   // accepts only letters, digits, _ . - in it. A feature named after its product has spaces.
-  const spanName = (name) => name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^_+|_+$/g, '') || 'span';
+  const spanName = (name) => name.replace(/[^A-Za-z0-9_.-]+/g, '_').replace(/^[_-]+|_+$/g, '') || 'span';
   // The engine refuses two spans with the same name, which two features of one name would give.
   const freeName = (name, taken) => {
     if (!taken.has(name)) return name;
@@ -962,7 +966,10 @@ import {
       return;
     }
     const bases = referenceBases();
-    if (!bases) return;
+    if (!bases) {
+      genomeError('The reference sequence is no longer in your file. Add your sequences again.');
+      return;
+    }
     genomeError('');
     clearHits();
     const token = {};
@@ -996,6 +1003,13 @@ import {
         : '';
       if (!result.best) {
         note('');
+        if (result.failed.length && result.failed.length === candidates.length) {
+          // Nothing was compared at all: blaming the user's sequences here would be wrong.
+          genomeError('NCBI did not answer for any of the reference records, so nothing was compared. '
+            + 'Check your connection, or wait a minute if NCBI is limiting requests, and try again. '
+            + 'A GenBank file loaded from your computer needs no network.');
+          return;
+        }
         genomeError('No reference record shares enough exact sequence with yours to place its '
           + `genes.${caveat} Search by the organism’s name, give an accession, or load a GenBank file.`);
         return;
@@ -1669,7 +1683,11 @@ import {
       if (!holder || !holder.dataset.modes.split(' ').includes(m)) return;
       const key = input.dataset.setting;
       if (key in out) return;
-      const changed = input.tagName === 'SELECT' ? input.value !== '' && input.selectedIndex !== 0 : input.value !== input.defaultValue;
+      // The engine's default can differ by mode (max variants: 4 tiling, 8 regions): a value is
+      // "changed" against the default of the mode it is sent for, so choosing 4 in regions is sent.
+      const modeDefault = input.dataset[`default${m[0].toUpperCase()}${m.slice(1)}`];
+      const base = modeDefault !== undefined ? modeDefault : input.defaultValue;
+      const changed = input.tagName === 'SELECT' ? input.value !== '' && input.selectedIndex !== 0 : input.value !== base;
       if (!changed || input.value === '') return;
       out[key] = input.type === 'number' ? Number(input.value) : input.value;
     });
@@ -1785,9 +1803,22 @@ import {
   $('form').addEventListener('submit', submit);
   $('file').addEventListener('change', (e) => readFile(e.target.files[0]));
   $('clear').addEventListener('click', clearSeqs);
+  document.querySelectorAll('[data-default-regions]').forEach((input) => {
+    input.addEventListener('input', () => { input.dataset.touched = '1'; });
+  });
   $('example').addEventListener('click', async () => {
-    const r = await fetch(state.engine && state.engine.name === 'server' ? '/api/example' : 'example.fasta');
-    if (r.ok) loadText('Example: 24 synthetic genomes', await r.text());
+    // Pick by gene needs a real virus: its best match looks for exact sequence shared with a
+    // catalogue record, which synthetic genomes never share. The other modes keep the synthetic set.
+    const genes = state.page === 'genes';
+    const server = state.engine && state.engine.name === 'server';
+    const url = genes ? 'example-genes.fasta' : server ? '/api/example' : 'example.fasta';
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`the server answered ${r.status}`);
+      loadText(genes ? 'Example: 12 human metapneumovirus genomes' : 'Example: 24 synthetic genomes', await r.text());
+    } catch (err) {
+      seqError(`Could not load the example (${err.message}). Check your connection and try again.`);
+    }
   });
   let pasteTimer;
   $('paste').addEventListener('input', () => {

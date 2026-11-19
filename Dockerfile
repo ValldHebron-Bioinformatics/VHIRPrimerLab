@@ -1,4 +1,5 @@
-# vhirprimerlab web app. Also the image the Hugging Face Space builds.
+# vhirprimerlab web app as a container, for running the server mode on your own machine.
+# (The public site is the browser version on GitHub Pages and does not use this image.)
 #   docker build -t vhirprimerlab-web .
 #   docker run --rm -p 7860:7860 vhirprimerlab-web     # then open http://localhost:7860
 FROM python:3.11-slim
@@ -7,7 +8,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends mafft \
  && rm -rf /var/lib/apt/lists/*
 
-# Hugging Face Spaces run the container as user 1000
+# Run as an unprivileged user (uid 1000, the usual first user, so mounted volumes stay writable)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \

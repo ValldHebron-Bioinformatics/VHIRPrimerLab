@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vhirprimerlab.models import PipelineError, Region
 
-NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
+NAME_RE = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_.-]*")  # not '-' first: it would read as an option
 SPEC_RE = re.compile(r"^(?:(?P<name>[^:]*):)?(?P<start>\d+)-(?P<end>\d+)$")
 
 
@@ -39,7 +39,12 @@ def load_regions_file(path: Path) -> list[Region]:
     if not path.is_file():
         raise PipelineError(f"Regions file not found: {path}")
     regions: list[Region] = []
-    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("latin-1")
+    for lineno, line in enumerate(text.splitlines(), start=1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         fields = line.rstrip("\r").split("\t")
@@ -47,8 +52,8 @@ def load_regions_file(path: Path) -> list[Region]:
         if len(fields) != 3:
             raise PipelineError(f"{where}: expected 3 tab-separated columns (name, start, end)")
         name, start, end = (f.strip() for f in fields)
-        if not regions and not start.isdigit():
-            continue  # header line
+        if not regions and not start.isdigit() and not end.isdigit():
+            continue  # header line: both numeric columns are titles; a lone typo is an error below
         if not (start.isdigit() and end.isdigit()):
             raise PipelineError(f"{where}: start and end must be integers")
         regions.append(_make_region(name, int(start), int(end), where))

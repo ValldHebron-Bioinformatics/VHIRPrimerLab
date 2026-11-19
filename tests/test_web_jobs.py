@@ -5,8 +5,12 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from vhirprimerlab.web.jobs import JobManager
 from vhirprimerlab.web.params import Limits
+
+pytestmark = pytest.mark.server   # server mode only: off by default, `pytest -m server` runs it
 
 
 def fake_job(job_dir: Path, argv: list[str]) -> None:

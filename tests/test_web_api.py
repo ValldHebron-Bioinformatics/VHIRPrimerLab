@@ -14,6 +14,8 @@ from tests.synthetic import make_genome_family
 from vhirprimerlab.web.app import create_app
 from vhirprimerlab.web.params import Limits
 
+pytestmark = pytest.mark.server   # server mode only: off by default, `pytest -m server` runs it
+
 GENOMES = "".join(f">{i}\n{s}\n" for i, s in make_genome_family())
 
 

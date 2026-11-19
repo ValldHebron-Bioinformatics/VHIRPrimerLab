@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vhirprimerlab"
-version = "0.2.0"
+dynamic = ["version"]  # read from vhirprimerlab/__init__.py: one place to bump
 description = "Design consensus PCR primers from a multi-FASTA of related sequences"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-dependencies = ["biopython>=1.81", "primer3-py>=2.0", "numpy"]
+dependencies = ["biopython>=1.81", "primer3-py>=2.0", "numpy>=1.24"]
 
 [project.optional-dependencies]
 dev = ["pytest", "httpx"]
@@ -18,12 +18,20 @@ web = ["fastapi>=0.110", "uvicorn>=0.29", "python-multipart>=0.0.18"]
 [project.scripts]
 vhirprimerlab = "vhirprimerlab.cli:main"
 
-[tool.setuptools]
-packages = ["vhirprimerlab", "vhirprimerlab.web"]
+[tool.setuptools.dynamic]
+version = {attr = "vhirprimerlab.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["vhirprimerlab*"]  # a new subpackage is shipped without touching this file
 
 [tool.setuptools.package-data]
+vhirprimerlab = ["py.typed"]
 "vhirprimerlab.web" = ["static/*", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# The server mode (FastAPI app and job runner) is not used: its tests are off by default.
+# Run them with `pytest -m server` (needs the web extra).
+addopts = "-m 'not server'"
+markers = ["server: tests of the FastAPI server mode, which the Pages site does not use"]

@@ -57,6 +57,15 @@ def test_validate_upload(tmp_path: Path) -> None:
     assert str(tmp_path) not in str(exc.value)
 
 
+def test_limits_accept_fractions_in_the_environment(monkeypatch) -> None:
+    """VHIRPRIMERLAB_MAX_UPLOAD_MB=0.5 used to raise ValueError at import: int('0.5')."""
+    monkeypatch.setenv("VHIRPRIMERLAB_MAX_UPLOAD_MB", "0.5")
+    monkeypatch.setenv("VHIRPRIMERLAB_TIMEOUT_S", "2.5")
+    monkeypatch.setenv("VHIRPRIMERLAB_RETENTION_S", "3600.5")
+    limits = Limits.from_env()
+    assert (limits.max_upload_mb, limits.timeout_s, limits.retention_s) == (0.5, 2.5, 3600.5)
+
+
 def test_limits_from_env(monkeypatch) -> None:
     monkeypatch.setenv("VHIRPRIMERLAB_MAX_SEQS", "50")
     monkeypatch.setenv("VHIRPRIMERLAB_TIMEOUT_S", "30")
